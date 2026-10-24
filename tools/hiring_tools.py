@@ -1,4 +1,4 @@
-"""Hiring: resume intake, anonymising and screening.
+"""Hiring: resume intake, anonymising, screening, stage approvals, email drafts, interview questions.
 
 Every function returns a dict and never raises (extract_text and anonymise return a str).
 Resumes live in config.DATA_DIR / "resumes" / <opening_id>; dropping a .txt/.pdf there is enough
@@ -7,6 +7,7 @@ to register a candidate on the next call.
 import hashlib
 import io
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 import config
@@ -16,6 +17,7 @@ import store
 STAGES = ["Applied", "Shortlisted", "Interview", "Offer", "Hired", "Rejected"]
 RESUME_TYPES = (".txt", ".pdf")
 NEXT_STEPS = ("interview", "hold", "reject")
+EMAIL_STATUS = "draft - not sent"
 
 SCORING_PROMPT = """You are screening a resume for a job opening.
 Judge ONLY skills and experience. Ignore name, gender, age, location and background completely.
@@ -320,3 +322,174 @@ def screen_candidates(opening_id):
         return {"opening": opening["title"], "opening_id": opening["id"], "ranked": ranked}
     except Exception as e:
         return {"error": f"Could not screen candidates: {e}"}
+
+
+# ---- candidates and stage changes (always through a human approval) ----
+
+def _find_candidate(candidates, candidate_id_or_name):
+    key = str(candidate_id_or_name or "").strip().lower()
+    return next((c for c in candidates if key in (c["id"].lower(), c["name"].lower())), None)
+
+
+def get_candidate(candidate_id):
+    try:
+        cand = _find_candidate(_sync(), candidate_id)
+        if cand is None:
+            return {"error": f"No candidate {candidate_id}."}
+        return {"candidate": {k: v for k, v in cand.items() if k != "hash"}}
+    except Exception as e:
+        return {"error": f"Could not read the candidate: {e}"}
+
+
+def _stage(stage):
+    stage = str(stage or "").strip().title()
+    return stage if stage in STAGES else None
+
+
+def request_stage_change(candidate_id, stage, requested_by="HumaNova"):
+    try:
+        new_stage = _stage(stage)
+        if new_stage is None:
+            return {"error": f"Unknown stage {stage}. Use one of: {', '.join(STAGES)}."}
+        cand = _find_candidate(_sync(), candidate_id)
+        if cand is None:
+            return {"error": f"No candidate {candidate_id}."}
+        summary = f"Move {cand['name']} ({cand['id']}) from {cand['stage']} to {new_stage}"
+        approval = store.create_approval(
+            "candidate_stage", cand["id"], {"stage": new_stage}, requested_by, summary
+        )
+        return {"approval_id": approval["id"], "status": "pending", "summary": summary}
+    except Exception as e:
+        return {"error": f"Could not request the stage change: {e}"}
+
+
+def apply_stage_change(candidate_id, stage):
+    try:
+        new_stage = _stage(stage)
+        if new_stage is None:
+            return {"error": f"Unknown stage {stage}. Use one of: {', '.join(STAGES)}."}
+        candidates = _sync()
+        cand = _find_candidate(candidates, candidate_id)
+        if cand is None:
+            return {"error": f"No candidate {candidate_id}."}
+        cand["stage"] = new_stage
+        store.write_json("candidates.json", candidates)
+        return {"candidate_id": cand["id"], "stage": new_stage}
+    except Exception as e:
+        return {"error": f"Could not change the stage: {e}"}
+
+
+# ---- drafts (never sent from here) ----
+
+EMAIL_PROMPT = """Write a short, warm email from our Talent Team to a job candidate.
+Candidate first name: {first_name}
+Role: {title}
+{instructions}
+Sign it "Talent Team". Reply with JSON only: {{"subject": "...", "body": "..."}}"""
+
+QUESTIONS_PROMPT = """Write exactly 5 interview questions for a candidate for the role "{title}".
+Skills the candidate showed: {matched}
+Skills the candidate is missing: {missing}
+At least 2 questions must be about the missing skills (if there are any). Keep each question to one sentence.
+Reply with JSON only: {{"questions": ["...", "...", "...", "...", "..."]}}"""
+
+GENERAL_QUESTIONS = [
+    "Tell us about a bug that took you a long time to find and how you finally solved it.",
+    "How do you make sure your code is easy for a teammate to review and maintain?",
+    "Describe a time you disagreed with a technical decision. What did you do?",
+    "How do you keep an application fast as more features are added?",
+    "What would you like to learn or improve in your first six months here?",
+]
+
+
+def _interview_slots():
+    today = date.fromisoformat(config.TODAY)
+    monday = today + timedelta(days=7 - today.weekday())
+    slots = [(monday + timedelta(days=1), "11:00 AM"), (monday + timedelta(days=3), "3:00 PM")]
+    return [f"{d.strftime('%A %d %B')} at {t}" for d, t in slots]
+
+
+def _template_email(kind, first_name, title):
+    if kind == "invite":
+        slots = _interview_slots()
+        return {
+            "subject": f"Interview invitation: {title}",
+            "body": (
+                f"Hi {first_name},\n\n"
+                f"Thank you for applying for the {title} role. We enjoyed reading your profile and "
+                f"would love to meet you for a 45-minute technical interview.\n\n"
+                f"Could one of these slots next week work for you?\n"
+                f"- {slots[0]}\n- {slots[1]}\n\n"
+                f"Just reply with the one that suits you, or suggest another time.\n\n"
+                f"Best regards,\nTalent Team"
+            ),
+        }
+    return {
+        "subject": f"Your application for {title}",
+        "body": (
+            f"Hi {first_name},\n\n"
+            f"Thank you for your interest in the {title} role and for the time you put into your "
+            f"application. After careful review, we have decided to move forward with other "
+            f"candidates whose experience is a closer match for this position.\n\n"
+            f"We wish you the very best in your search.\n\n"
+            f"Best wishes,\nTalent Team"
+        ),
+    }
+
+
+def draft_email(candidate_id, kind="invite"):
+    try:
+        kind = str(kind or "").strip().lower()
+        if kind not in ("invite", "reject"):
+            return {"error": "kind must be 'invite' or 'reject'."}
+        cand = _find_candidate(_sync(), candidate_id)
+        if cand is None:
+            return {"error": f"No candidate {candidate_id}."}
+        first_name = cand["name"].split()[0]
+        title = _find_opening(cand["opening_id"])["title"]
+        if kind == "invite":
+            instructions = ("Invite them to a 45-minute technical interview and offer these two slots "
+                            "next week: " + " or ".join(_interview_slots()) + ".")
+        else:
+            instructions = "Politely tell them we will not move forward this time, and thank them."
+        try:
+            reply = llm.complete_json(EMAIL_PROMPT.format(
+                first_name=first_name, title=title, instructions=instructions
+            ))
+            email = {"subject": str(reply["subject"]), "body": str(reply["body"])}
+        except Exception:
+            email = _template_email(kind, first_name, title)
+        return {**email, "status": EMAIL_STATUS}
+    except Exception as e:
+        return {"error": f"Could not draft the email: {e}"}
+
+
+def _template_questions(matched, missing):
+    questions = [f"Walk us through a recent project where you used {s}." for s in matched[:3]]
+    questions += [f"How would you get up to speed with {s} in your first month?" for s in missing[:2]]
+    questions += [q for q in GENERAL_QUESTIONS if q not in questions]
+    return questions[:5]
+
+
+def interview_questions(candidate_id):
+    try:
+        cand = _find_candidate(_sync(), candidate_id)
+        if cand is None:
+            return {"error": f"No candidate {candidate_id}."}
+        opening = _find_opening(cand["opening_id"])
+        if "matched" not in cand:  # never screened: use the rule score for matched/missing
+            cand = {**cand, **_rule_score(opening, anonymise(_read_resume(cand)))}
+        matched, missing = cand["matched"], cand["missing"]
+        try:
+            reply = llm.complete_json(QUESTIONS_PROMPT.format(
+                title=opening["title"], matched=", ".join(matched) or "none",
+                missing=", ".join(missing) or "none",
+            ))
+            questions = list(dict.fromkeys(str(q).strip() for q in reply["questions"] if str(q).strip()))
+        except Exception:
+            questions = []
+        if len(questions) < 5:  # offline, or Claude gave too few: top up from the template
+            questions += [q for q in _template_questions(matched, missing) if q not in questions]
+        return {"candidate_id": cand["id"], "questions": questions[:5]}
+    except Exception as e:
+        return {"error": f"Could not write interview questions: {e}"}

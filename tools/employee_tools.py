@@ -161,7 +161,7 @@ def _attendance(d, emp_id, days):
     attended = counts["present"] + counts["wfh"]
     counted = attended + counts["absent"]
     return {"days": len(rows), "present": counts["present"], "wfh": counts["wfh"], "leave": counts["leave"],
-            "absent": counts["absent"],
+            "absent": counts["absent"], "counted": counted,  # counted == 0: no attendance data, the 100.0 is a default
             "attendance_pct": round(attended / counted * 100, 1) if counted else 100.0}
 
 
@@ -283,6 +283,7 @@ def team_overview(team=None):
         flagged += bool(f["flags"])
         rows.append({"name": e["name"], "role": e["role"], "team": e["team"], "status_today": f["status_today"],
                      "attendance_pct": f["attendance"]["attendance_pct"],
+                     "attendance_known": f["attendance"]["counted"] > 0,
                      "goals_on_track": sum(1 for g in f["goals"] if not g["overdue"] and not _is_done(g)),
                      "goals_overdue": sum(1 for g in f["goals"] if g["overdue"]),
                      "latest_rating": f["review"]["rating"] if f["review"] else None})

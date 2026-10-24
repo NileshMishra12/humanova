@@ -128,7 +128,9 @@ class _Sync:
                 if m.get("userId") and m["userId"] not in self.by_user:
                     self._add_person({"id": f"N-{m['userId'][:6]}", "user_id": m["userId"], "hr_id": None,
                                       "name": m.get("name") or "Unknown", "email": m.get("email") or "",
-                                      "role": m.get("role") or "", "team": m.get("teamName") or "",
+                                      "role": "Team member" if str(m.get("role") or "MEMBER").upper() == "MEMBER"
+                                      else str(m["role"]).replace("_", " ").title(),
+                                      "team": m.get("teamName") or "",
                                       "manager_hr": None, "join_date": "", "location": "",
                                       "skills": m.get("skills") or []})
         for person in self.people:

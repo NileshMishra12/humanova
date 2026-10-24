@@ -1,12 +1,39 @@
 """All file reads/writes live here, so moving to Postgres later touches one module."""
 import csv
+import functools
+import io
 import json
+import os
+import threading
+import time
 import uuid
 from datetime import datetime
 
 import config
 
 AUDIT_LIMIT = 500
+_LOCK = threading.RLock()  # the app serves several browser tabs at once; read-modify-write must not interleave
+
+
+def _locked(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
+
+
+def _atomic_write(path, text):
+    """Write to a temporary file, then swap it in, so a reader never sees a half-written file."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(text, encoding="utf-8", newline="")
+    for _ in range(20):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:  # Windows: someone is reading the file this instant
+            time.sleep(0.05)
+    os.replace(tmp, path)
 
 
 def _path(name):
@@ -25,21 +52,31 @@ def read_csv(name):
 def write_csv(name, rows, fieldnames=None):
     if fieldnames is None:
         fieldnames = list(rows[0].keys()) if rows else []
-    with _path(name).open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    out = io.StringIO(newline="")
+    writer = csv.DictWriter(out, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    _atomic_write(_path(name), out.getvalue())
 
 
 def read_json(name):
     path = _path(name)
     if not path.exists():
         return []
-    return json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8-sig")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        try:  # keep the first complete value; anything after it is left over from an interrupted write
+            value, _ = json.JSONDecoder().raw_decode(text)
+        except json.JSONDecodeError:
+            raise ValueError(f"{name} is damaged and can't be read ({e}). Delete it to start fresh.") from e
+        write_json(name, value)  # repair the file
+        return value
 
 
 def write_json(name, data):
-    _path(name).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    _atomic_write(_path(name), json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def read_bytes(*parts):
@@ -71,6 +108,7 @@ def _now():
     return datetime.now().isoformat(timespec="seconds")
 
 
+@_locked
 def audit(user, tool, inputs, status):
     log = read_json("audit_log.json")
     log.append({"time": _now(), "user": user, "tool": tool, "inputs": inputs, "status": status})
@@ -79,6 +117,7 @@ def audit(user, tool, inputs, status):
 
 # ---- approvals ----
 
+@_locked
 def create_approval(kind, target_id, change, requested_by, summary):
     approvals = read_json("approvals.json")
     approval = {
@@ -102,6 +141,7 @@ def list_approvals(status="pending"):
     return [a for a in approvals if status is None or a["status"] == status]
 
 
+@_locked
 def decide_approval(approval_id, approve, by, reason=""):
     approvals = read_json("approvals.json")
     approval = next((a for a in approvals if a["id"] == approval_id), None)
@@ -147,6 +187,7 @@ def decide_approval(approval_id, approve, by, reason=""):
 
 # ---- recruiter decisions and chat feedback (what HumaNova learns from) ----
 
+@_locked
 def record_decision(candidate_id, opening_id, decision, reason, by, source="manual"):
     """decision is 'advanced' or 'rejected'."""
     if decision not in ("advanced", "rejected"):
@@ -164,6 +205,7 @@ def list_decisions(opening_id=None):
     return [d for d in read_json("decisions.json") if opening_id is None or d["opening_id"] == opening_id]
 
 
+@_locked
 def add_feedback(question, answer, rating, comment, by):
     """rating is 'up' or 'down'."""
     if rating not in ("up", "down"):

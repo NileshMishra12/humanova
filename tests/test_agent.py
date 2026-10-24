@@ -114,6 +114,9 @@ check("loop returns Claude's final answer", answer == "Priya Shah is in Web.")
 check("trace lists the tool Claude called", [t["tool"] for t in trace] == ["list_employees"])
 check("token usage adds up over rounds", (agent.LAST_USAGE["input_tokens"], agent.LAST_USAGE["output_tokens"]) == (320, 70))
 check("usage says live mode", agent.LAST_USAGE["mode"] == "live")
+sent_system = fake.calls[0]["system"]
+check("instructions are sent as a cacheable block", isinstance(sent_system, list) and sent_system[0]["cache_control"] == {"type": "ephemeral"}
+      and "HumaNova" in sent_system[0]["text"])
 results = fake.calls[1]["messages"][-1]["content"]
 check("tool result goes back to Claude", results[0]["type"] == "tool_result" and "Priya Shah" in results[0]["content"])
 
@@ -148,6 +151,26 @@ check("matching ignores case ('backend' is 'Backend Team')", seen["overview_team
 use([reply(tool_use(1, "team_overview", {"team": "Mars"}), stop="tool_use"), reply(text("ok"))])
 agent.run_agent(ask("Mars"), admin)
 check("an unknown team name is left alone", seen["overview_team"] == "Mars")
+
+# ---- roles follow the real teams ----
+
+demo_roles = dict(agent.ROLES)
+agent.refresh_roles()
+check("every real team gets a manager role", "Manager - CS Team" in agent.ROLES and "Manager - Backend Team" in agent.ROLES)
+check("a demo manager whose team exists is kept", "Manager - Anita Desai (Web)" in agent.ROLES)
+check("a generated manager is limited to its own team", agent.ROLES["Manager - CS Team"]["team"] == "CS Team")
+real_list = agent.FUNCS["list_employees"]
+agent.FUNCS["list_employees"] = lambda team=None: {"employees": [
+    {"id": "E9", "name": "Sam", "role": "Dev", "team": "CS Team", "manager_id": "", "status_today": "present"}]}
+agent.refresh_roles()
+check("a demo manager whose team isn't in the data is dropped", "Manager - Anita Desai (Web)" not in agent.ROLES)
+check("HR Admin comes first when no demo manager fits", list(agent.ROLES)[0] == "HR Admin")
+agent.FUNCS["list_employees"] = lambda team=None: {"employees": []}
+agent.refresh_roles()
+check("with no employee data the roles are left alone", list(agent.ROLES)[0] == "HR Admin" and "Manager - CS Team" in agent.ROLES)
+agent.FUNCS["list_employees"] = real_list
+agent.ROLES.clear()
+agent.ROLES.update(demo_roles)
 
 # ---- limits and failures ----
 

@@ -65,6 +65,7 @@ def sync_from_nexus():
 def sidebar():
     st.sidebar.title("🌟 HumaNova")
     st.sidebar.caption("AI agent platform for HR · demo on dummy data")
+    agent.refresh_roles()  # managers follow the real teams in the data
     role = agent.ROLES[st.sidebar.selectbox("Signed in as (demo)", list(agent.ROLES))]
     st.sidebar.write("Mode: " + ("🟡 Offline" if llm.MOCK else f"🟢 Live · {config.MODEL}"))
     st.sidebar.write("📅 " + date.fromisoformat(config.TODAY).strftime("%A %d %b %Y"))
@@ -130,8 +131,10 @@ def show_message(role, msgs, i):
         usage, trace = m.get("usage", {}), m.get("trace", [])
         tokens_in, tokens_out = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
         mode = "🟡 offline" if usage.get("mode") == "offline" else "🟢 live"
-        st.caption(f"{mode} · {tokens_in + tokens_out} tokens ({tokens_in} in / {tokens_out} out) "
-                   f"· {len(trace)} tool call(s)")
+        cached = usage.get("cache_read_tokens", 0)
+        st.caption(f"{mode} · {tokens_in + tokens_out + cached} tokens ({tokens_in} in / {tokens_out} out"
+                   + (f" / {cached} read from cache, about a tenth of the price" if cached else "")
+                   + f") · {len(trace)} tool call(s)")
         if m.get("feedback"):
             st.caption("Thanks, feedback noted.")
         else:

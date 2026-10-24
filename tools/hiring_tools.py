@@ -53,6 +53,36 @@ def extract_text(filename, data):
         return ""
 
 
+_SECTIONS = r"\b(experience|education|skills?|projects?|summary|objective|employment|qualifications?|certifications?|achievements?)\b"
+_ROLES = r"\b(developer|engineer|manager|analyst|designer|consultant|intern|architect|administrator|executive|lead|tester|specialist|officer)\b"
+_DEGREES = r"\b(b\.?tech|m\.?tech|b\.?e\b|b\.?sc|m\.?sc|bca|mca|mba|bachelor|master|diploma|degree|university|college)\b"
+_NOT_A_CV = r"\b(invoice|report generated|statement|folio|total amount|balance|receipt|purchase order|market value)\b"
+
+
+def looks_like_resume(text, skills=()):
+    """(True, '') for something that reads like a CV, else (False, why). Cheap rules, no AI: it only has to
+    stop invoices, statements and other reports from being scored as candidates. skills are the opening's
+    skills: naming two or more of them is good evidence, so a very short but real CV still passes."""
+    text = text or ""
+    named = [s for s in skills if _has_skill(text, s)]
+    if len(text.strip()) < (30 if len(named) >= 2 else 120):
+        return False, "there is almost no readable text (a scanned image PDF can't be read yet)"
+    low = text.lower()
+    letters, digits = sum(c.isalpha() for c in text), sum(c.isdigit() for c in text)
+    score = 2 if len(named) >= 2 else 0
+    sections = len(set(re.findall(_SECTIONS, low)))
+    score += 2 if sections >= 2 else sections
+    score += 1 if re.search(r"\b\d+(\.\d+)?\+?\s*years?\b|\b(19|20)\d{2}\s*[-–]\s*((19|20)\d{2}|present|current)", low) else 0
+    score += 1 if re.search(_ROLES, low) else 0
+    score += 1 if re.search(_DEGREES, low) else 0
+    score += 1 if re.search(r"\S+@\S+|\+?\d[\d\s-]{8,}\d", text) else 0
+    score -= 2 if digits > 0.25 * max(letters, 1) else 0
+    score -= 2 if len(re.findall(_NOT_A_CV, low)) >= 2 else 0
+    if score >= 3:
+        return True, ""
+    return False, "it doesn't read like a CV: no skills, experience or education sections were found"
+
+
 _PERSONAL = [
     re.compile(r"\bGender\s*:\s*\w+", re.I),
     re.compile(r"\b(?:fe)?male\b", re.I),
@@ -189,6 +219,10 @@ def add_resume(opening_id, filename, data):
         filename = Path(str(filename or "")).name
         if not filename.lower().endswith(RESUME_TYPES):
             return {"error": "Resumes must be .txt or .pdf files."}
+        ok, why = looks_like_resume(extract_text(filename, data),
+                                    list(opening.get("must_have", [])) + list(opening.get("nice_to_have", [])))
+        if not ok:
+            return {"error": f"{filename} was not added: {why}. Upload a resume with skills, experience and education."}
         folder = _folder(opening["id"])
         folder.mkdir(parents=True, exist_ok=True)
         if isinstance(data, str):

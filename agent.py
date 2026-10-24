@@ -12,7 +12,8 @@ import store
 MAX_ROUNDS = 6
 MAX_HISTORY = 10
 MAX_TOOL_CHARS = 12000  # a tool result longer than this is cut, so a big company can't blow the token budget
-LAST_USAGE = {"input_tokens": 0, "output_tokens": 0, "mode": "offline"}  # updated in place by run_agent
+LAST_USAGE = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0,
+              "mode": "offline"}  # updated in place by run_agent; input_tokens is the part that was not cached
 
 
 # ---- tool definitions (what Claude sees) ----
@@ -143,6 +144,26 @@ ROLES = {r["label"]: r for r in (
           "You are talking to an HR Admin. You can see every team and use every tool.",
           _EMPLOYEE | _HIRING_ALL | {"people_report"}),
 )}
+
+
+_DEMO_ROLES = dict(ROLES)
+
+
+def refresh_roles():
+    """Make the role list match the people we actually have. A demo manager whose team isn't in the data is
+    dropped, and every real team gets a manager role. ROLES is updated in place so other modules keep working."""
+    teams = sorted({e["team"] for e in _employees() if e.get("team") and e["team"] != "Unassigned"})
+    if not teams:
+        return  # no employee data yet: keep the demo roles
+    demo = [r for r in _DEMO_ROLES.values() if r["team"] in teams]
+    covered = {r["team"] for r in demo}
+    extra = [_role(f"Manager - {t}", t, f"You are talking to the manager of the {t}. You may see only {t} members "
+                   "and read-only hiring data (openings, screening, candidates).", _EMPLOYEE | _HIRING_READ)
+             for t in teams if t not in covered]
+    recruiter, admin = _DEMO_ROLES["Recruiter - Talent Team"], _DEMO_ROLES["HR Admin"]
+    ordered = demo + [recruiter, admin] + extra if demo else [admin, recruiter] + extra
+    ROLES.clear()
+    ROLES.update({r["label"]: r for r in ordered})
 
 
 def allowed(role, name):
@@ -410,7 +431,7 @@ def _overview_lines(res):
     lines = [f"- Headcount **{res.get('headcount')}** · present today {res.get('present_today')} · "
              f"on leave {res.get('on_leave_today')} · flagged {res.get('flagged')}"]
     rows = res.get("rows", [])
-    low = sorted((r for r in rows if _num(r.get("attendance_pct")) is not None),
+    low = sorted((r for r in rows if _num(r.get("attendance_pct")) is not None and r.get("attendance_known", True)),
                  key=lambda r: _num(r["attendance_pct"]))[:5]
     if low:
         lines.append("- Lowest attendance: " + "; ".join(f"{r.get('name')} {r['attendance_pct']}%" for r in low))
@@ -821,7 +842,7 @@ def _answer(question, role, trace):
 
 def mock_agent(question, role):
     """Offline agent: keyword routing to the same tools. Returns (answer, trace) like run_agent."""
-    LAST_USAGE.update(input_tokens=0, output_tokens=0, mode="offline")
+    LAST_USAGE.update(input_tokens=0, output_tokens=0, cache_read_tokens=0, cache_write_tokens=0, mode="offline")
     trace = []
     try:
         answer = _answer(question, role, trace)
@@ -910,7 +931,7 @@ def _log_chat(role, history, trace, status):
 
 def run_agent(history, role):
     question = _last_user_text(history)
-    LAST_USAGE.update(input_tokens=0, output_tokens=0, mode="live")
+    LAST_USAGE.update(input_tokens=0, output_tokens=0, cache_read_tokens=0, cache_write_tokens=0, mode="live")
     if llm.MOCK:
         answer, trace = mock_agent(question, role)
         _log_chat(role, history, trace, "mock")
@@ -920,7 +941,8 @@ def run_agent(history, role):
     while messages and messages[0]["role"] != "user":
         messages.pop(0)  # a trimmed window must start with the user
     tools = [t for t in TOOLS if allowed(role, t["name"])]
-    system = system_prompt(role)
+    # the tool list and instructions are the same every round: mark them cacheable (read back at ~10% of the price)
+    system = [{"type": "text", "text": system_prompt(role), "cache_control": {"type": "ephemeral"}}]
     trace = []
 
     try:
@@ -932,6 +954,8 @@ def run_agent(history, role):
                 model=config.MODEL, max_tokens=1200, system=system, messages=messages, **kwargs)
             LAST_USAGE["input_tokens"] += reply.usage.input_tokens
             LAST_USAGE["output_tokens"] += reply.usage.output_tokens
+            LAST_USAGE["cache_read_tokens"] += getattr(reply.usage, "cache_read_input_tokens", 0) or 0
+            LAST_USAGE["cache_write_tokens"] += getattr(reply.usage, "cache_creation_input_tokens", 0) or 0
 
             if reply.stop_reason != "tool_use":
                 answer = "".join(b.text for b in reply.content if b.type == "text").strip()

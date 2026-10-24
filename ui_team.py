@@ -9,6 +9,16 @@ COLUMNS = {"name": "Name", "role": "Role", "team": "Team", "status_today": "Toda
            "goals_overdue": "Goals overdue", "latest_rating": "Latest rating"}
 
 
+def _cell(key, row):
+    """Text for one table cell. A missing number says so (and stays text, so the column type is consistent)."""
+    value = row[key]
+    if key == "attendance_pct":
+        return f"{value:g}" if row.get("attendance_known", True) else "no data"
+    if key == "latest_rating":
+        return "no review" if value is None else str(value)
+    return str(value) if key.startswith("goals") else value
+
+
 def _attention(team):
     st.subheader("Needs attention")
     res = employee_tools.get_attention_flags(team)
@@ -61,8 +71,11 @@ def render(role):
         _attention(team)
 
     st.subheader(f"{team} team" if team else "Everyone")
-    st.dataframe([{label: row[key] for key, label in COLUMNS.items()} for row in overview["rows"]],
+    st.dataframe([{label: _cell(key, row) for key, label in COLUMNS.items()} for row in overview["rows"]],
                  hide_index=True, width="stretch")
+    if not any(row.get("attendance_known") for row in overview["rows"]):
+        st.caption("No attendance data has been loaded, so attendance isn't shown. Goals and ratings show "
+                   "only what the connected source provides.")
 
     if agent.allowed(role, "summarise_employee"):
         _prep(role, [row["name"] for row in overview["rows"]])

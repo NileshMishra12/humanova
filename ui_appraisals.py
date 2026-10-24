@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 
 import agent
+import nexus_client
 import policy
 from tools import performance_tools
 
@@ -119,7 +120,17 @@ def _nexus_expander(role, team):
         if table["series"]:
             st.caption("Tasks per day worked, for people whose trend changed")
             st.line_chart(pd.DataFrame(table["series"]).sort_index())
-        st.caption("HumaNova only reads these numbers from Nexus. It never changes or re-measures them.")
+        capacity = agent.use_tool(role, "team_capacity", **({"team": team} if team else {}))
+        if "error" not in capacity:
+            st.markdown("**Capacity (from Nexus projects and recent output)**")
+            st.dataframe([{"Name": p["name"], "Team": p["team"], "Status": p["status"],
+                           "Active projects": p["active_projects"], "Overdue": p["overdue_projects"],
+                           "Output vs target": "-" if p["utilisation_pct"] is None else f"{p['utilisation_pct']}%"}
+                          for p in capacity["people"]], width="stretch", hide_index=True)
+            st.caption(capacity["rule"])
+        source = nexus_client.source()
+        st.caption(f"Source: {source['name']} ({source['mode']}: {source['detail']}). "
+                   "HumaNova only reads these numbers from Nexus. It never changes or re-measures them.")
 
 
 def render(role):

@@ -16,7 +16,7 @@ def client():
     global _client
     if _client is None:
         import anthropic
-        _client = anthropic.Anthropic(api_key=config.API_KEY)
+        _client = anthropic.Anthropic(api_key=config.API_KEY, timeout=60.0, max_retries=2)  # fail fast in a demo
     return _client
 
 

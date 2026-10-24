@@ -48,6 +48,11 @@
       "Below expectations": [1, 1]
     }
   },
+  "capacity": {
+    "max_active_projects": 2,
+    "available_below_utilisation_pct": 90,
+    "recent_weeks": 4
+  },
   "increment_budget_pct": 8,
   "top_band_max_share": 0.4,
   "notes": [

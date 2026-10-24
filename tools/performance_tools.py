@@ -8,6 +8,7 @@ import functools
 
 import config
 import llm
+import nexus_client
 import policy
 import store
 
@@ -50,8 +51,7 @@ def _fmt(v, digits=1, suffix=""):
 # ---------------- Nexus numbers ----------------
 
 def _nexus_rows(emp_id, weeks=12):
-    rows = sorted((r for r in store.read_csv("nexus_work.csv") if r["employee_id"] == emp_id),
-                  key=lambda r: r["week"])
+    rows = sorted(nexus_client.work_rows(emp_id), key=lambda r: r["week"])
     out = []
     for r in rows[-int(weeks):]:
         days, done = _int(r.get("days_worked")), _int(r.get("tasks_done"))
@@ -157,7 +157,7 @@ def work_table(team=None):
 def project_status(team=None):
     names = {p["id"]: p["name"] for p in _people().list_employees()["employees"]}
     projects = []
-    for s in store.read_json("sows.json"):
+    for s in nexus_client.projects():
         if team and str(s.get("team", "")).lower() != team.lower():
             continue
         done = s.get("status") == "done" or (_num(s.get("progress_pct")) or 0) >= 100
@@ -167,6 +167,46 @@ def project_status(team=None):
                          "overdue": s["due"] < config.TODAY and not done})
     projects.sort(key=lambda p: (not p["overdue"], p["due"]))
     return {"projects": projects, "overdue_count": sum(1 for p in projects if p["overdue"])}
+
+
+@_safe
+def team_capacity(team=None):
+    """Who has room for new work and who is stretched, from Nexus projects and recent output (thresholds in policy)."""
+    pol = policy.load()
+    cap, targets = pol["capacity"], pol["productivity_target_tasks_per_day"]
+    people = _people().list_employees(team)["employees"]
+    if not people:
+        return {"error": f"No employees found for team '{team}'"}
+    projects = nexus_client.projects()
+    order = {"available": 0, "balanced": 1, "at capacity": 2, "on leave today": 3, "no Nexus data": 4}
+    rows = []
+    for p in people:
+        mine = [s for s in projects if p["id"] in s.get("members", [])
+                and s.get("status") != "done" and (_num(s.get("progress_pct")) or 0) < 100]
+        overdue = [s for s in mine if s["due"] < config.TODAY]
+        output = _totals(_nexus_rows(p["id"], cap["recent_weeks"]))["tasks_per_day"]
+        target = targets["manager" if "manager" in p["role"].lower() else "default"]
+        utilisation = round(100 * output / target) if output is not None else None
+        if p["status_today"] == "leave":
+            status = "on leave today"
+        elif len(mine) >= cap["max_active_projects"] or overdue:
+            status = "at capacity"
+        elif utilisation is None:
+            status = "no Nexus data"
+        else:
+            status = "available" if utilisation < cap["available_below_utilisation_pct"] else "balanced"
+        rows.append({"name": p["name"], "employee_id": p["id"], "team": p["team"], "role": p["role"],
+                     "status": status, "active_projects": len(mine), "overdue_projects": len(overdue),
+                     "projects": [s["code"] for s in mine],
+                     "tasks_per_day": None if output is None else round(output, 2),
+                     "utilisation_pct": utilisation})
+    rows.sort(key=lambda r: (order[r["status"]], r["utilisation_pct"] if r["utilisation_pct"] is not None else 0))
+    return {"team": team or "All teams", "people": rows,
+            "available": [r["name"] for r in rows if r["status"] == "available"],
+            "at_capacity": [r["name"] for r in rows if r["status"] == "at capacity"],
+            "rule": f"At capacity: {cap['max_active_projects']}+ active projects or an overdue one. Available: "
+                    f"output under {cap['available_below_utilisation_pct']}% of the policy target.",
+            "source": nexus_client.source()}
 
 
 # ---------------- appraisal evidence ----------------
@@ -293,6 +333,7 @@ def appraisal_evidence(name_or_id, cycle="2026-H2", narrative=True, flags=None):
     return {
         "employee": emp["name"], "employee_id": emp["id"], "cycle": cycle,
         "team": emp["team"], "role": emp["role"], "join_date": emp["join_date"],
+        "nexus_source": nexus_client.source(),
         "last_rating": review["rating"] if review else None,
         "score": s["score"], "band": band["name"], "action": band.get("action"),
         "increment_range": {"min_pct": band["increment_min_pct"], "max_pct": band["increment_max_pct"]},

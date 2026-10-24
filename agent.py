@@ -11,6 +11,7 @@ import store
 
 MAX_ROUNDS = 6
 MAX_HISTORY = 10
+MAX_TOOL_CHARS = 12000  # a tool result longer than this is cut, so a big company can't blow the token budget
 LAST_USAGE = {"input_tokens": 0, "output_tokens": 0, "mode": "offline"}  # updated in place by run_agent
 
 
@@ -58,6 +59,7 @@ _DEFS = [
     _tool("performance_trend", "Rating and goal trend of one person across review cycles.", _PERSON, ["name_or_id"]),
     _tool("team_performance", "Performance summary of a team: ratings, goals and delivery.", _TEAM),
     _tool("project_status", "Project status for a team from Nexus (who is on what, what is overdue). Report it as it is; do not re-judge it.", _TEAM),
+    _tool("team_capacity", "Who has spare capacity and who is stretched, from Nexus projects and recent output. Use for 'who can take on a new project', workload, bandwidth or resource-allocation questions.", _TEAM),
     _tool("appraisal_evidence", "Evidence pack for one person's appraisal: goals, ratings, Nexus metrics, attendance. Use before recommending a rating.",
           {**_PERSON, "cycle": {"type": "string", "description": "Appraisal cycle, e.g. 2026-H1. Omit for the current one."}}, ["name_or_id"]),
     _tool("request_appraisal_approval", "Recommend an appraisal outcome for a person. This does not finalise it: it creates an approval for HR to decide.",
@@ -113,7 +115,8 @@ _EMPLOYEE = {"list_employees", "get_employee", "who_is_on_leave", "get_attendanc
              "team_overview", "summarise_employee", "hr_reminders",
              "performance_trend", "team_performance", "project_status", "appraisal_evidence",
              "request_appraisal_approval", "appraisal_report", "team_report",
-             "appraisal_cycle_status", "calibration", "increment_recommendations", "graph_search"}
+             "appraisal_cycle_status", "calibration", "increment_recommendations", "graph_search",
+             "team_capacity"}
 _HIRING_READ = {"list_openings", "screen_candidates", "get_candidate"}
 _HIRING_ALL = _HIRING_READ | {"request_stage_change", "draft_email", "interview_questions"}
 
@@ -158,7 +161,8 @@ def can_decide(role, kind):
 # Later prompts append their tools to these tuples.
 TEAM_TOOLS = ("list_employees", "who_is_on_leave", "get_attention_flags", "team_overview", "hr_reminders",
               "team_performance", "project_status", "team_report",
-              "appraisal_cycle_status", "calibration", "increment_recommendations", "people_report")
+              "appraisal_cycle_status", "calibration", "increment_recommendations", "people_report",
+              "team_capacity")
 PERSON_TOOLS = ("get_employee", "get_attendance", "summarise_employee", "performance_trend",
                 "appraisal_evidence", "request_appraisal_approval", "appraisal_report")
 
@@ -501,6 +505,19 @@ def _trend_lines(res):
             f"- Tasks per day worked, by week: {tasks}", f"- On-time %, by week: {on_time}"]
 
 
+def _capacity_lines(res):
+    people = res.get("people", [])
+    lines = [f"- Available: {', '.join(res.get('available', [])) or 'nobody'}",
+             f"- At capacity: {', '.join(res.get('at_capacity', [])) or 'nobody'}"]
+    lines += _list(people, lambda p: f"{p['name']} ({p['team']}): **{p['status']}** · "
+                                     f"{p['active_projects']} active project(s)"
+                                     + (f", {p['overdue_projects']} overdue" if p["overdue_projects"] else "")
+                                     + (f" · output {p['utilisation_pct']}% of target"
+                                        if p["utilisation_pct"] is not None else ""))
+    return lines + [f"- Rule: {res.get('rule')}", f"- Source: {res.get('source', {}).get('name')} "
+                                                   f"({res.get('source', {}).get('mode')})"]
+
+
 def _graph_lines(res):
     if res.get("kind") == "skill":
         lines = [f"- Skill: **{res.get('skill')}**"]
@@ -741,6 +758,8 @@ def _answer(question, role, trace):
             if row:
                 text += f"\n- **Recommended increment**: {_inline(row)}"
         return text
+    if _has(q, "capacity", "bandwidth", "availab", "allocat", "workload", "overload"):
+        return _show("Team capacity (Nexus)", run("team_capacity", **team), _capacity_lines)
     if _has(q, "sow", "project"):
         return _show("Project status (Nexus)", run("project_status", **team))
     if _has(q, "improv", "declin", "trend", "performance"):
@@ -862,6 +881,15 @@ def _last_user_text(history):
     return ""
 
 
+def _for_claude(result):
+    """A tool result as the text Claude sees, cut with a note if it is huge."""
+    text = json.dumps(result, default=str)
+    if len(text) <= MAX_TOOL_CHARS:
+        return text
+    return (text[:MAX_TOOL_CHARS] + f"... [cut: {len(text) - MAX_TOOL_CHARS} more characters. "
+            "Tell the user the result was long and ask them to narrow it, for example by team.]")
+
+
 def _log_chat(role, history, trace, status):
     store.audit(role["label"], "chat",
                 {"question": _last_user_text(history)[:300], "tools": [t["tool"] for t in trace]}, status)
@@ -909,7 +937,7 @@ def run_agent(history, role):
                 else:
                     result = _out_of_scope(block.name, args, role) or call_tool(block.name, args, role["label"])
                 results.append({"type": "tool_result", "tool_use_id": block.id,
-                                "content": json.dumps(result, default=str),
+                                "content": _for_claude(result),
                                 **({"is_error": True} if "error" in result else {})})
             messages.append({"role": "user", "content": results})
         raise RuntimeError("tool loop did not finish")

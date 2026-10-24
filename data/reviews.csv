@@ -1,0 +1,7 @@
+employee_id,cycle,rating,notes,reviewer_id
+E02,2026-H1,4,Delivers Angular work consistently and reviews teammates' pull requests with care. Next step is to own a larger module end to end.,E01
+E03,2026-H1,3,Solid backend work and a dependable owner of the billing services. Needs to raise blockers earlier and keep estimates realistic.,E01
+E04,2026-H1,4,Thorough test plans that caught several release blockers early. A good partner to developers when reproducing bugs.,E01
+E06,2026-H1,3,Good grasp of Flutter and Firebase and picks up new work quickly. Needs to tighten estimates and follow through on the offline mode milestones.,E05
+E07,2026-H1,2,Code quality concerns this cycle: several merge requests needed repeated rework and bugs were reopened. An improvement plan is in place with weekly check-ins with the manager.,E05
+E08,2026-H1,4,"Settled in quickly after joining in May and shipped clear, well-documented design components. Works well with the mobile developers.",E05

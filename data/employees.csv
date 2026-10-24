@@ -1,0 +1,9 @@
+id,name,email,role,team,manager_id,join_date,location,skills,casual_balance,sick_balance,earned_balance
+E01,Anita Desai,anita.desai@company.test,Engineering Manager,Web,,2019-06-03,Surat,Leadership;Angular;Planning,8,6,14
+E02,Priya Shah,priya.shah@company.test,Frontend Developer,Web,E01,2023-04-10,Surat,Angular;TypeScript;RxJS,2,5,9
+E03,Rahul Mehta,rahul.mehta@company.test,Backend Developer,Web,E01,2022-01-17,Ahmedabad,Node.js;PostgreSQL;Docker,6,1,7
+E04,Sneha Kulkarni,sneha.kulkarni@company.test,QA Engineer,Web,E01,2024-02-05,Surat,Selenium;Cypress;API testing,5,3,6
+E05,Vikram Rao,vikram.rao@company.test,Engineering Manager,Mobile,,2018-09-10,Pune,Leadership;Flutter;Architecture,7,6,15
+E06,Neha Iyer,neha.iyer@company.test,Mobile Developer,Mobile,E05,2023-08-21,Pune,Flutter;Dart;Firebase,6,4,8
+E07,Arjun Patel,arjun.patel@company.test,Mobile Developer,Mobile,E05,2021-11-01,Surat,Kotlin;Android;REST,4,6,11
+E08,Kavya Nair,kavya.nair@company.test,UI/UX Designer,Mobile,E05,2026-05-04,Bengaluru,Figma;Design systems;Prototyping,7,6,5

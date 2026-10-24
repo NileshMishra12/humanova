@@ -1,0 +1,12 @@
+Isha Gupta
+isha.gupta@mail.test | +91 98250 44444 | DOB: 14/03/2003
+
+Fresher looking for a first full-time role as a frontend developer.
+
+Skills: Angular (online course), TypeScript basics, HTML, CSS, JavaScript
+
+Experience
+- 6-month internship at Nova Infotech: fixed UI bugs and built two simple Angular pages.
+- Course project: a to-do app in Angular.
+
+Education: BCA, Veer Narmad South Gujarat University

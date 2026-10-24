@@ -1,0 +1,10 @@
+id,employee_id,title,target_date,progress_pct,status
+G1,E02,Migrate dashboard module to Angular 18,2026-11-15,70,in_progress
+G2,E02,Add unit tests to reach 70% coverage,2026-12-15,40,in_progress
+G3,E03,Cut API p95 latency below 300 ms,2026-11-30,55,in_progress
+G4,E04,Automate regression suite in Cypress,2026-11-20,65,in_progress
+G5,E06,Release offline mode for field app,2026-10-10,60,in_progress
+G6,E07,Migrate payments screen to Jetpack Compose,2026-12-01,30,in_progress
+G7,E08,Publish mobile design system v1,2026-11-25,80,in_progress
+G8,E01,Hire two frontend developers,2026-12-31,20,in_progress
+G9,E05,Ship release 4.0 of the mobile app,2026-09-30,100,done

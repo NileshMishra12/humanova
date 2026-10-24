@@ -1,18 +1,40 @@
-"""Hiring: resume intake and anonymising.
+"""Hiring: resume intake, anonymising and screening.
 
 Every function returns a dict and never raises (extract_text and anonymise return a str).
 Resumes live in config.DATA_DIR / "resumes" / <opening_id>; dropping a .txt/.pdf there is enough
 to register a candidate on the next call.
 """
+import hashlib
 import io
 import re
 from pathlib import Path
 
 import config
+import llm
 import store
 
 STAGES = ["Applied", "Shortlisted", "Interview", "Offer", "Hired", "Rejected"]
 RESUME_TYPES = (".txt", ".pdf")
+NEXT_STEPS = ("interview", "hold", "reject")
+
+SCORING_PROMPT = """You are screening a resume for a job opening.
+Judge ONLY skills and experience. Ignore name, gender, age, location and background completely.
+
+Opening: {title}
+Job description: {jd}
+Must-have skills: {must}
+Nice-to-have skills: {nice}
+Minimum years of experience: {min_years}
+
+Anonymised resume:
+---
+{resume}
+---
+
+Reply with JSON only:
+{{"score": <0-100>, "matched": [skills from the lists that the resume shows],
+"missing": [skills from the lists that the resume does not show], "years_experience": <number>,
+"reason": "<one sentence>", "next_step": "interview" | "hold" | "reject"}}"""
 
 
 def extract_text(filename, data):
@@ -74,9 +96,9 @@ def _folder(opening_id):
     return config.DATA_DIR / "resumes" / opening_id
 
 
-def _find_opening(opening_id):
-    key = str(opening_id or "").strip().lower()
-    return next((o for o in _openings() if o["id"].lower() == key), None)
+def _find_opening(opening_id_or_title):
+    key = str(opening_id_or_title or "").strip().lower()
+    return next((o for o in _openings() if key in (o["id"].lower(), o["title"].lower())), None)
 
 
 def _sync():
@@ -175,3 +197,126 @@ def add_resume(opening_id, filename, data):
         return {"candidate_id": cand["id"], "name": cand["name"]}
     except Exception as e:
         return {"error": f"Could not add the resume: {e}"}
+
+
+# ---- scoring ----
+
+def _has_skill(text, skill):
+    # "Angular" must not match "AngularJS"; "Node.js" must match "Node.js".
+    return re.search(rf"(?<![\w.]){re.escape(skill)}(?!\w)", text, re.I) is not None
+
+
+def _years(text):
+    found = re.findall(r"(\d+(?:\.\d+)?)\s*\+?\s*years?\b", text, re.I)
+    return max((float(n) for n in found), default=0.0)
+
+
+def _fmt_years(years):
+    return f"{float(years):g}"
+
+
+def _next_step(score):
+    return "interview" if score >= 75 else "hold" if score >= 50 else "reject"
+
+
+def _rule_score(opening, text):
+    must = _skill_list(opening.get("must_have"))
+    nice = _skill_list(opening.get("nice_to_have"))
+    min_years = float(opening.get("min_years") or 0)
+    must_found = [s for s in must if _has_skill(text, s)]
+    nice_found = [s for s in nice if _has_skill(text, s)]
+    years = _years(text)
+
+    score = 60 * len(must_found) / len(must) if must else 60
+    score += 20 * len(nice_found) / len(nice) if nice else 20
+    score += 20 * (min(years / min_years, 1) if min_years else 1)
+    score = min(round(score), 98)
+
+    reason = f"Matches {len(must_found)}/{len(must)} must-have skills"
+    if must_found:
+        reason += f" ({', '.join(must_found)})"
+    reason += f"; {_fmt_years(years)} years experience vs {_fmt_years(min_years)} required."
+    return {
+        "score": score,
+        "matched": must_found + nice_found,
+        "missing": [s for s in must + nice if s not in must_found + nice_found],
+        "years_experience": years,
+        "reason": reason,
+        "next_step": _next_step(score),
+    }
+
+
+def _score(opening, text):
+    """Claude's score when online; the rule score when offline or on any error."""
+    rules = _rule_score(opening, text)
+    try:
+        reply = llm.complete_json(SCORING_PROMPT.format(
+            title=opening["title"],
+            jd=opening.get("jd_text", ""),
+            must=", ".join(_skill_list(opening.get("must_have"))),
+            nice=", ".join(_skill_list(opening.get("nice_to_have"))) or "none",
+            min_years=_fmt_years(opening.get("min_years") or 0),
+            resume=text,
+        ), max_tokens=400)
+        score = max(0, min(100, round(float(reply["score"]))))
+        next_step = str(reply.get("next_step", "")).strip().lower()
+        return {
+            "score": score,
+            "matched": _skill_list(reply["matched"]) if "matched" in reply else rules["matched"],
+            "missing": _skill_list(reply["missing"]) if "missing" in reply else rules["missing"],
+            "years_experience": float(reply.get("years_experience") or rules["years_experience"]),
+            "reason": str(reply.get("reason") or "").strip() or rules["reason"],
+            "next_step": next_step if next_step in NEXT_STEPS else _next_step(score),
+        }
+    except Exception:
+        return rules
+
+
+def _read_resume(cand):
+    path = _folder(cand["opening_id"]) / cand["file"]
+    try:
+        return extract_text(cand["file"], path.read_bytes())
+    except OSError:
+        return ""
+
+
+def screen_candidates(opening_id):
+    try:
+        opening = _find_opening(opening_id)
+        if opening is None:
+            return {"error": f"No opening {opening_id}."}
+        candidates = _sync()
+        changed = False
+        for cand in candidates:
+            if cand["opening_id"] != opening["id"]:
+                continue
+            text = _read_resume(cand)
+            digest = hashlib.md5(text.encode("utf-8")).hexdigest()
+            if cand.get("hash") == digest and "score" in cand:
+                continue  # same CV as last time: no tokens spent again
+            cand.update(_score(opening, anonymise(text)))
+            cand["hash"] = digest
+            changed = True
+        if changed:
+            store.write_json("candidates.json", candidates)
+        ranked = sorted(
+            (
+                {
+                    "candidate_id": c["id"],
+                    "name": c["name"],
+                    "score": c["score"],
+                    "matched": c["matched"],
+                    "missing": c["missing"],
+                    "years_experience": c["years_experience"],
+                    "reason": c["reason"],
+                    "next_step": c["next_step"],
+                    "stage": c["stage"],
+                }
+                for c in candidates if c["opening_id"] == opening["id"]
+            ),
+            key=lambda c: c["score"],
+            reverse=True,
+        )
+        return {"opening": opening["title"], "opening_id": opening["id"], "ranked": ranked}
+    except Exception as e:
+        return {"error": f"Could not screen candidates: {e}"}

@@ -4,34 +4,107 @@
     "opening_id": "OP1",
     "name": "Rohan Verma",
     "file": "01_rohan_verma.txt",
-    "stage": "Applied"
+    "stage": "Applied",
+    "score": 98,
+    "matched": [
+      "Angular",
+      "TypeScript",
+      "RxJS",
+      "NgRx",
+      "Jest",
+      "Node.js"
+    ],
+    "missing": [],
+    "years_experience": 5.0,
+    "reason": "Matches 3/3 must-have skills (Angular, TypeScript, RxJS); 5 years experience vs 3 required.",
+    "next_step": "interview",
+    "hash": "a227444a5c8398d6948795feea7437f9"
   },
   {
     "id": "C2",
     "opening_id": "OP1",
     "name": "Meera Joshi",
     "file": "02_meera_joshi.txt",
-    "stage": "Applied"
+    "stage": "Applied",
+    "score": 80,
+    "matched": [
+      "Angular",
+      "TypeScript",
+      "RxJS"
+    ],
+    "missing": [
+      "NgRx",
+      "Jest",
+      "Node.js"
+    ],
+    "years_experience": 3.5,
+    "reason": "Matches 3/3 must-have skills (Angular, TypeScript, RxJS); 3.5 years experience vs 3 required.",
+    "next_step": "interview",
+    "hash": "6a9e114c13216763693def3e2cc4bbb0"
   },
   {
     "id": "C3",
     "opening_id": "OP1",
     "name": "Sameer Khan",
     "file": "03_sameer_khan.txt",
-    "stage": "Applied"
+    "stage": "Applied",
+    "score": 53,
+    "matched": [
+      "TypeScript",
+      "Jest",
+      "Node.js"
+    ],
+    "missing": [
+      "Angular",
+      "RxJS",
+      "NgRx"
+    ],
+    "years_experience": 4.0,
+    "reason": "Matches 1/3 must-have skills (TypeScript); 4 years experience vs 3 required.",
+    "next_step": "hold",
+    "hash": "cf7e435830dc550b3b8a0e27d31e514e"
   },
   {
     "id": "C4",
     "opening_id": "OP1",
     "name": "Isha Gupta",
     "file": "04_isha_gupta.txt",
-    "stage": "Applied"
+    "stage": "Applied",
+    "score": 40,
+    "matched": [
+      "Angular",
+      "TypeScript"
+    ],
+    "missing": [
+      "RxJS",
+      "NgRx",
+      "Jest",
+      "Node.js"
+    ],
+    "years_experience": 0.0,
+    "reason": "Matches 2/3 must-have skills (Angular, TypeScript); 0 years experience vs 3 required.",
+    "next_step": "reject",
+    "hash": "679ac2b1a3fccdc7adeae6123dd19970"
   },
   {
     "id": "C5",
     "opening_id": "OP1",
     "name": "Deepak Shah",
     "file": "05_deepak_shah.txt",
-    "stage": "Applied"
+    "stage": "Applied",
+    "score": 20,
+    "matched": [],
+    "missing": [
+      "Angular",
+      "TypeScript",
+      "RxJS",
+      "NgRx",
+      "Jest",
+      "Node.js"
+    ],
+    "years_experience": 6.0,
+    "reason": "Matches 0/3 must-have skills; 6 years experience vs 3 required.",
+    "next_step": "reject",
+    "hash": "a870d14a1c9be7aedce8c58b77f0489c"
   }
 ]

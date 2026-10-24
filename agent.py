@@ -167,10 +167,22 @@ PERSON_TOOLS = ("get_employee", "get_attendance", "summarise_employee", "perform
                 "appraisal_evidence", "request_appraisal_approval", "appraisal_report")
 
 
+def _resolve_team(name):
+    """Match a loosely typed team ('CS', 'backend') to the real team name ('CS Team'); unchanged if unsure."""
+    teams = sorted({e["team"] for e in _employees() if e.get("team")})
+    low, bare = str(name).strip().lower(), str(name).strip().lower().removesuffix(" team")
+    exact = [t for t in teams if t.lower() == low]
+    close = exact or [t for t in teams if t.lower().removesuffix(" team") == bare]         or [t for t in teams if bare and bare in t.lower()]
+    return close[0] if len(close) == 1 else name
+
+
 def _scope(name, args, role):
     """Force the role's team into the team argument of team tools."""
-    if role["team"] and name in TEAM_TOOLS:
-        args["team"] = role["team"]
+    if name in TEAM_TOOLS:
+        if role["team"]:
+            args["team"] = role["team"]
+        elif args.get("team"):
+            args["team"] = _resolve_team(args["team"])
     return args
 
 

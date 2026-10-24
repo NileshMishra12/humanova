@@ -70,6 +70,7 @@ class _Sync:
         self.people, self.by_user, self.by_hr = [], {}, {}
         self.projects, self.members = [], {}
         self.present_days, self.leave_days, self.attended = {}, {}, set()
+        self.working_on = defaultdict(set)  # project id -> user ids with work touched in the window
 
     def attempt(self, label, fn, default=None):
         """Run one read. A refusal or error becomes a warning and the default, never a crash."""
@@ -254,6 +255,8 @@ class _Sync:
             for issue in issues:
                 owners = [self.by_user[u]["id"] for u in issue.get("assigneeIds") or [] if u in self.by_user]
                 contributors.update(owners)
+                if _day(issue.get("updatedAt")) >= first.isoformat():  # real involvement, not just being on the list
+                    self.working_on[p["id"]].update(u for u in issue.get("assigneeIds") or [] if u in self.by_user)
                 kind = issue.get("type")
                 done_day = _day(issue.get("completedDate"))
                 if states.get(issue.get("workflowStateId"), {}).get("category") == "DONE" and done_day \
@@ -309,12 +312,14 @@ class _Sync:
     def project_rows(self):
         out = []
         for p in self.projects:
-            people = [self.by_user[m["userId"]] for m in self.members[p["id"]] if m.get("userId") in self.by_user]
+            # members who actually have work on it; Nexus project lists often include everyone
+            active = self.working_on.get(p["id"])
+            people = [x for x in self.people if x["user_id"] in active] if active else                 [self.by_user[m["userId"]] for m in self.members[p["id"]] if m.get("userId") in self.by_user]
             owner = self.by_user.get(p.get("ownerId"))
             teams = Counter(x["team"] for x in people)
             due, progress = _day(p.get("endDate"), True), _num(p.get("progress")) or 0
             finished = progress >= 100 or str(p.get("status")).upper() in ("COMPLETED", "DONE", "CLOSED")
-            out.append({"code": p.get("code") or p.get("displayId") or p.get("name"), "title": p.get("name"),
+            out.append({"id": p.get("code") or p.get("displayId") or p.get("name"), "title": p.get("name"),
                         "team": (owner or {}).get("team") or (teams.most_common(1)[0][0] if teams else ""),
                         "members": [x["id"] for x in people], "due": due, "progress_pct": round(progress),
                         "status": "done" if finished else "overdue" if due and due < self.today.isoformat()

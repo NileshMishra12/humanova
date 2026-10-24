@@ -102,11 +102,15 @@ def _increments(evs, cycle):
         "cycle": cycle, "budget_pct": budget,
         "average_before": round(average_before, 2),
         "average_after": round(sum(r["recommended_pct"] for r in eligible) / len(eligible), 2) if eligible else 0.0,
-        "scaled": factor < 1.0, "scale_factor": round(factor, 3), "rows": rows,
+        "scaled": factor < 1.0, "scale_factor": round(factor, 3),
+        "eligible_count": len(eligible), "not_eligible_count": len(rows) - len(eligible),
         "top3": [{"name": r["name"], "employee_id": r["employee_id"], "score": r["score"],
                   "recommended_pct": r["recommended_pct"]} for r in eligible[:3]],
+        "top_by_score": [{"name": r["name"], "team": r["team"], "score": r["score"], "band": r["band"]}
+                         for r in rows[:5]],
         "not_eligible": [{"name": r["name"], "employee_id": r["employee_id"], "reason": r["reason"]}
                          for r in rows if not r["eligible"]],
+        "rows": rows,  # last: the longest part
     }
 
 
@@ -181,11 +185,12 @@ def _status(evs, cycle):
              "last_rating": ev["last_rating"], "trend": ev["trend"]} for ev in evs]
     count = Counter(r["status"] for r in rows)
     pct = lambda n: round(100 * n / len(rows), 1)
-    return {"cycle": cycle, "headcount": len(rows), "rows": rows,
+    return {"cycle": cycle, "headcount": len(rows),
             "approved": count["Approved"], "rejected": count["Rejected"],
             "waiting": count["Waiting for HR"], "not_started": count["Not started"],
             "approved_pct": pct(count["Approved"]),
-            "completion_pct": pct(count["Approved"] + count["Rejected"])}
+            "completion_pct": pct(count["Approved"] + count["Rejected"]),
+            "rows": rows}
 
 
 @_safe

@@ -55,7 +55,8 @@ ROUTES = {
                    "endDate": "2026-10-10T00:00:00.000Z", "isHidden": False},
                   {"id": "p2", "name": "Secret", "code": "PRJ-2", "isHidden": True}],
     "/projects/p1/members": [{"userId": "u2", "name": "Ravi Kumar", "role": "DEVELOPER", "teamName": "Web"},
-                             {"userId": "u3", "name": "Meena Iyer", "role": "DEVELOPER", "teamName": "Web"}],
+                             {"userId": "u3", "name": "Meena Iyer", "role": "DEVELOPER", "teamName": "Web"},
+                             {"userId": "u4", "name": "Idle Person", "role": "MEMBER", "teamName": "Web"}],
     "/hr/employees": [ASHA, RAVI, MEENA, OLD],
     "/hr/employees/me": ASHA,
     "/hr/employees/me/hierarchy-reportees": [RAVI],
@@ -160,7 +161,7 @@ result = nexus_sync.sync(api())
 check("sync succeeds", result["ok"] and result["tier"] == "all employees")
 check("the old files were backed up once", (Path(DATA) / nexus_sync.BACKUP / "employees.csv").read_text().startswith("id"))
 employees = {e["id"]: e for e in store.read_csv("employees.csv")}
-check("terminated people are left out", set(employees) == {"E001", "E002", "E003"})
+check("terminated people are left out", {"E001", "E002", "E003"} <= set(employees) and "E009" not in employees)
 check("name, role, team and join date are mapped", (employees["E002"]["name"], employees["E002"]["role"], employees["E002"]["team"],
                                                      employees["E002"]["join_date"]) == ("Ravi Kumar", "Developer", "Web", "2025-01-10"))
 check("manager is the business id", employees["E002"]["manager_id"] == "E001" and employees["E001"]["manager_id"] == "")
@@ -189,13 +190,15 @@ check("epics are ignored", this_week["tasks_done"] == "2")
 check("reopens come from status history", work[("E003", "2026-10-19")]["bugs_reopened"] == "1")
 check("no attendance means 5 days", work[("E003", "2026-10-19")]["days_worked"] == "5")
 check("every contributor gets 12 weekly rows", len([k for k in work if k[0] == "E002"]) == 12 and ("E001", "2026-10-19") not in work)
+check("a project member with no work on it is not counted as working on it", "N-u4" in employees and
+      "N-u4" not in store.read_json("sows.json")[0]["members"])
 check("the project row is mapped", store.read_json("sows.json") == [
-    {"code": "PRJ-1", "title": "Portal", "team": "Web", "members": ["E002", "E003"], "due": "2026-10-10",
+    {"id": "PRJ-1", "title": "Portal", "team": "Web", "members": ["E002", "E003"], "due": "2026-10-10",
      "progress_pct": 60, "status": "overdue"}])
 marker = (Path(DATA) / "nexus_sync.json").read_text()
 check("the sync marker holds no token or password", '"T1"' not in marker and '"R1"' not in marker and "pw-secret" not in marker)
 check("the tools now report a live source", nexus_client.source()["live"] and nexus_client.work_rows("E002")[0]["employee_id"] == "E002")
-check("the tools read the projects back", nexus_client.projects()[0]["code"] == "PRJ-1")
+check("the tools read the projects back", nexus_client.project_code(nexus_client.projects()[0]) == "PRJ-1")
 nexus_client.forget_sync()
 check("forgetting the sync goes back to dummy", not nexus_client.source()["live"])
 

@@ -55,8 +55,13 @@ def work_rows(employee_id=None):
 
 
 def projects():
-    """Projects (SOWs): code, title, team, members (employee ids), due, progress_pct, status."""
+    """Projects (SOWs): id, title, team, members (employee ids), due, progress_pct, status."""
     return store.read_json("sows.json")
+
+
+def project_code(project):
+    """A project's code. The data files call it 'id'; older files called it 'code'."""
+    return project.get("id") or project.get("code")
 
 
 # ---------------- read-only HTTP client ----------------

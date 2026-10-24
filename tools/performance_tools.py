@@ -5,6 +5,7 @@ layer on top. Every rule and weight comes from policies/appraisal_policy.json vi
 Every function returns a plain dict and never raises.
 """
 import functools
+from collections import Counter
 
 import config
 import llm
@@ -161,7 +162,7 @@ def project_status(team=None):
         if team and str(s.get("team", "")).lower() != team.lower():
             continue
         done = s.get("status") == "done" or (_num(s.get("progress_pct")) or 0) >= 100
-        projects.append({"code": s["code"], "title": s["title"], "team": s.get("team"), "due": s["due"],
+        projects.append({"code": nexus_client.project_code(s), "title": s["title"], "team": s.get("team"), "due": s["due"],
                          "progress_pct": s.get("progress_pct"), "status": s.get("status"),
                          "members": [names.get(m, m) for m in s.get("members", [])],
                          "overdue": bool(s["due"]) and s["due"] < config.TODAY and not done})
@@ -197,16 +198,18 @@ def team_capacity(team=None):
             status = "available" if utilisation < cap["available_below_utilisation_pct"] else "balanced"
         rows.append({"name": p["name"], "employee_id": p["id"], "team": p["team"], "role": p["role"],
                      "status": status, "active_projects": len(mine), "overdue_projects": len(overdue),
-                     "projects": [s["code"] for s in mine],
+                     "projects": [nexus_client.project_code(s) for s in mine],
                      "tasks_per_day": None if output is None else round(output, 2),
                      "utilisation_pct": utilisation})
     rows.sort(key=lambda r: (order[r["status"]], r["utilisation_pct"] if r["utilisation_pct"] is not None else 0))
-    return {"team": team or "All teams", "people": rows,
+    return {"team": team or "All teams", "headcount": len(rows),
+            "counts": dict(Counter(r["status"] for r in rows)),
             "available": [r["name"] for r in rows if r["status"] == "available"],
             "at_capacity": [r["name"] for r in rows if r["status"] == "at capacity"],
             "rule": f"At capacity: {cap['max_active_projects']}+ active projects or an overdue one. Available: "
                     f"output under {cap['available_below_utilisation_pct']}% of the policy target.",
-            "source": nexus_client.source()}
+            "source": nexus_client.source(),
+            "people": rows}  # last: the longest part
 
 
 # ---------------- appraisal evidence ----------------

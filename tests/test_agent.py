@@ -64,8 +64,17 @@ seen = {}
 
 def fake_list_employees(team=None):
     seen["list_team"] = team
-    return {"employees": [{"id": "E1", "name": "Priya Shah", "role": "Dev", "team": team or "Web",
-                           "manager_id": "E0", "status_today": "present"}]}
+    people = [{"id": "E1", "name": "Priya Shah", "role": "Dev", "team": team or "Web",
+               "manager_id": "E0", "status_today": "present"}]
+    if team is None:
+        people += [{"id": "E2", "name": "Sam", "role": "Dev", "team": "CS Team", "manager_id": "E0", "status_today": "present"},
+                   {"id": "E3", "name": "Lee", "role": "Dev", "team": "Backend Team", "manager_id": "E0", "status_today": "present"}]
+    return {"employees": people}
+
+
+def fake_team_overview(team=None):
+    seen["overview_team"] = team
+    return {"headcount": 1, "rows": []}
 
 
 def fake_get_employee(name_or_id):
@@ -88,7 +97,7 @@ def fake_boom():
 
 
 original_funcs, original_tools = dict(agent.FUNCS), list(agent.TOOLS)
-agent.FUNCS.update(list_employees=fake_list_employees, get_employee=fake_get_employee,
+agent.FUNCS.update(team_overview=fake_team_overview, list_employees=fake_list_employees, get_employee=fake_get_employee,
                    get_attendance=fake_get_attendance, huge=fake_huge, boom=fake_boom)
 agent.TOOLS[:] = [d for d in agent._DEFS if d["name"] in agent.FUNCS]
 anita = agent.ROLES["Manager - Anita Desai (Web)"]
@@ -129,6 +138,16 @@ check("recruiter is only offered hiring tools", "list_openings" in names and "li
 fake = use([reply(tool_use(1, "get_employee", {"name_or_id": "E1"}), stop="tool_use"), reply(text("ok"))])
 agent.run_agent(ask("Tell me about E1"), recruiter)
 check("recruiter calling an employee tool is refused", "can't use" in fake.calls[1]["messages"][-1]["content"][0]["content"])
+
+use([reply(tool_use(1, "team_overview", {"team": "CS"}), stop="tool_use"), reply(text("ok"))])
+agent.run_agent(ask("Overview of CS"), admin)
+check("a loose team name ('CS') is matched to the real one ('CS Team')", seen["overview_team"] == "CS Team")
+use([reply(tool_use(1, "team_overview", {"team": "backend"}), stop="tool_use"), reply(text("ok"))])
+agent.run_agent(ask("backend overview"), admin)
+check("matching ignores case ('backend' is 'Backend Team')", seen["overview_team"] == "Backend Team")
+use([reply(tool_use(1, "team_overview", {"team": "Mars"}), stop="tool_use"), reply(text("ok"))])
+agent.run_agent(ask("Mars"), admin)
+check("an unknown team name is left alone", seen["overview_team"] == "Mars")
 
 # ---- limits and failures ----
 

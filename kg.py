@@ -7,6 +7,7 @@ Edges: works in, reports to, knows, works on, for team, requires, nice to have, 
 """
 import re
 
+import nexus_client
 import store
 
 CACHE_SKIP = ("knowledge_graph.json", "audit_log.json", "approvals.json", "appraisals.json", "feedback.json")
@@ -70,8 +71,9 @@ def build_graph():
             edge(f"emp:{e['id']}", f"emp:{e['manager_id']}", "reports to")
 
     for p in store.read_json("sows.json"):
-        pid = node(f"sow:{p['code']}", "sow", f"{p['code']} {p['title']}",
-                   f"{p['code']} {p['title']}: due {p['due']}, {p.get('progress_pct')}% done, {p.get('status')}")
+        code = nexus_client.project_code(p)
+        pid = node(f"sow:{code}", "sow", f"{code} {p['title']}",
+                   f"{code} {p['title']}: due {p['due']}, {p.get('progress_pct')}% done, {p.get('status')}")
         if p.get("team"):
             edge(pid, team(p["team"]), "for team")
         for m in p.get("members", []):

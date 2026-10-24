@@ -11,7 +11,10 @@ import streamlit as st
 import agent
 import config
 import llm
+import nexus_client
+import nexus_sync
 import store
+from nexus_client import NexusError
 
 st.set_page_config(page_title="HumaNova", page_icon="🌟", layout="wide")
 
@@ -36,8 +39,26 @@ def reset_demo_data():
             runpy.run_path(str(path), run_name="__main__")
         except Exception as e:
             notes.append(f"{name} failed: {type(e).__name__}: {e}")
+    nexus_client.forget_sync()  # the dummy data is back, so the files no longer come from Nexus
     st.session_state.clear()
     st.session_state["flash"] = " ".join(notes) or "Demo data reset."
+    st.rerun()
+
+
+def sync_from_nexus():
+    try:
+        with st.spinner("Reading from Nexus…"):
+            result = nexus_sync.sync()
+    except NexusError as e:
+        st.session_state["flash"] = f"Nexus sync failed: {e}"
+        st.rerun()
+    if not result["ok"]:
+        st.session_state["flash"] = " ".join(result["warnings"])
+    else:
+        counts = ", ".join(f"{n} {name}" for name, n in result["counts"].items())
+        warnings = "".join(f"\n- {w}" for w in result["warnings"])
+        st.session_state["flash"] = f"Synced from Nexus ({result['tier']}): {counts}.{warnings}"
+    st.session_state.pop("digests", None)
     st.rerun()
 
 
@@ -48,6 +69,12 @@ def sidebar():
     st.sidebar.write("Mode: " + ("🟡 Offline" if llm.MOCK else f"🟢 Live · {config.MODEL}"))
     st.sidebar.write("📅 " + date.fromisoformat(config.TODAY).strftime("%A %d %b %Y"))
     st.sidebar.write("🧠 Learned so far: 0")
+    source = nexus_client.source()
+    st.sidebar.write("Nexus: " + ("🟢 live sync" if source["live"] else "🟡 dummy export"))
+    if source["live"]:
+        st.sidebar.caption(source["detail"])
+    if config.NEXUS_LIVE and st.sidebar.button("Sync from Nexus", width="stretch"):
+        sync_from_nexus()
     if st.sidebar.button("Reset demo data", width="stretch"):
         reset_demo_data()
     flash = st.session_state.pop("flash", None)

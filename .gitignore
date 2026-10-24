@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .venv/
+
+data/nexus_sync.json
+data/_backup_before_nexus/

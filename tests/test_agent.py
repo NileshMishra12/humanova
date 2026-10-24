@@ -165,7 +165,8 @@ check("every chat is in the audit log", any(e["tool"] == "chat" for e in store.r
 # ---- prompt rules and learned corrections ----
 
 prompt = agent.system_prompt(anita)
-for phrase in ("Never invent", "recommendations", "drafts only", "supportive", "salary amounts", "Nexus"):
+for phrase in ("Never invent", "recommendations", "drafts only", "supportive", "salary amounts", "Nexus",
+               "never create approvals on your own"):
     check(f"system prompt says: {phrase}", phrase.lower() in prompt.lower())
 check("system prompt names the signed-in user", "Anita Desai" in prompt)
 store.add_feedback("who is out", "x", "down", "Always include the leave type", "tester")

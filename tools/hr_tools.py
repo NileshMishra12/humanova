@@ -61,6 +61,8 @@ def _service_months(join_date):
 
 
 def _ineligible_reason(ev, eligibility):
+    if not ev.get("join_date"):  # for example people read only from Nexus project lists
+        return "No join date available (it needs access to Nexus HR records)"
     months = _service_months(ev["join_date"])
     if eligibility.get("exclude_probation") and months < eligibility["probation_months"]:
         return f"Still in probation ({months} months of service; probation is {eligibility['probation_months']} months)"

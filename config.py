@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 def _load_env(path):
     if not path.exists():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():  # -sig: Windows editors add a hidden BOM
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -25,3 +25,7 @@ FAST_MODEL = os.environ.get("HR_FAST_MODEL", "claude-haiku-5-5")
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 MOCK = os.environ.get("HR_MOCK") == "1" or not API_KEY
 APP_PORT = int(os.environ.get("HR_PORT", "8788"))
+NEXUS_URL = os.environ.get("NEXUS_URL", "https://nexus.midasx.in").rstrip("/")
+NEXUS_EMAIL = os.environ.get("NEXUS_EMAIL", "")
+NEXUS_PASSWORD = os.environ.get("NEXUS_PASSWORD", "")
+NEXUS_LIVE = bool(NEXUS_EMAIL and NEXUS_PASSWORD)  # credentials present: a Nexus sync is possible

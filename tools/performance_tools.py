@@ -164,7 +164,7 @@ def project_status(team=None):
         projects.append({"code": s["code"], "title": s["title"], "team": s.get("team"), "due": s["due"],
                          "progress_pct": s.get("progress_pct"), "status": s.get("status"),
                          "members": [names.get(m, m) for m in s.get("members", [])],
-                         "overdue": s["due"] < config.TODAY and not done})
+                         "overdue": bool(s["due"]) and s["due"] < config.TODAY and not done})
     projects.sort(key=lambda p: (not p["overdue"], p["due"]))
     return {"projects": projects, "overdue_count": sum(1 for p in projects if p["overdue"])}
 
@@ -183,7 +183,7 @@ def team_capacity(team=None):
     for p in people:
         mine = [s for s in projects if p["id"] in s.get("members", [])
                 and s.get("status") != "done" and (_num(s.get("progress_pct")) or 0) < 100]
-        overdue = [s for s in mine if s["due"] < config.TODAY]
+        overdue = [s for s in mine if s["due"] and s["due"] < config.TODAY]
         output = _totals(_nexus_rows(p["id"], cap["recent_weeks"]))["tasks_per_day"]
         target = targets["manager" if "manager" in p["role"].lower() else "default"]
         utilisation = round(100 * output / target) if output is not None else None

@@ -48,6 +48,18 @@ def read_bytes(*parts):
     return path.read_bytes() if path.is_file() else None
 
 
+def backup_files(names, folder):
+    """Copy data files into data/<folder> once, so the first overwrite (for example by a Nexus sync) can be undone."""
+    target = config.DATA_DIR / folder
+    if target.exists():
+        return False
+    target.mkdir(parents=True)
+    for name in names:
+        if (config.DATA_DIR / name).is_file():
+            (target / name).write_bytes((config.DATA_DIR / name).read_bytes())
+    return True
+
+
 def data_stamp(skip=()):
     """Changes whenever a data file changes (used to cache slow results). skip lists file names to ignore."""
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)

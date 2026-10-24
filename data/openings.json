@@ -1,0 +1,19 @@
+[
+  {
+    "id": "OP1",
+    "title": "Angular Developer",
+    "team": "Web",
+    "must_have": [
+      "Angular",
+      "TypeScript",
+      "RxJS"
+    ],
+    "nice_to_have": [
+      "NgRx",
+      "Jest",
+      "Node.js"
+    ],
+    "min_years": 3,
+    "jd_text": "We are hiring an Angular Developer for our Surat office to build enterprise dashboards in Angular with TypeScript and RxJS. You will write unit tests, integrate REST APIs and work closely with designers and backend developers. 3+ years of experience required."
+  }
+]

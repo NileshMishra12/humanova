@@ -1,0 +1,13 @@
+Meera Joshi
+meera.joshi@mail.test | +91 98250 22222 | Gender: Female
+
+Frontend Developer with 3.5 years of experience in Angular.
+
+Skills: Angular, TypeScript, RxJS, Karma, Jasmine, Bootstrap, REST APIs
+
+Experience
+- Brightline Tech, Frontend Developer: built reporting screens for an HR product in Angular and
+  TypeScript, using RxJS for search and filters. Wrote unit tests with Karma and Jasmine.
+- Codewave Studio, Junior Developer: built forms and tables for a logistics client portal.
+
+Education: B.Tech Information Technology, DDU Nadiad

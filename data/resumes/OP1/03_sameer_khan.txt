@@ -1,0 +1,13 @@
+Sameer Khan
+sameer.khan@mail.test | +91 98250 33333
+
+React Developer with 4 years of experience.
+
+Skills: React, Redux, TypeScript, Jest, Node.js, Express, GraphQL
+
+Experience
+- Pixelforge, React Developer: built a customer portal in React and TypeScript with Jest tests and a
+  Node.js backend for the APIs.
+- Legacy project: maintained an old AngularJS (v1) internal tool for six months before it was retired.
+
+Education: B.Sc. Computer Science, Gujarat University

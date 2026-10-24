@@ -1,0 +1,14 @@
+Rohan Verma
+rohan.verma@mail.test | +91 98250 11111 | Male, Age 29
+
+Senior Frontend Developer with 5 years of experience building enterprise web apps.
+
+Skills: Angular 12-18, TypeScript, RxJS, NgRx, Jest, Node.js, HTML, SCSS, REST APIs
+
+Experience
+- Finlytics Pvt Ltd, Senior Frontend Developer: built a trading dashboard in Angular 17 with NgRx
+  state management and RxJS streams for live prices. Raised Jest unit test coverage to 85%.
+- WebCraft Solutions, Frontend Developer: migrated an Angular 12 admin portal to standalone
+  components; wrote small Node.js services for the REST APIs the portal used.
+
+Education: B.E. Computer Engineering, SVNIT Surat

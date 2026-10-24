@@ -1,1 +1,37 @@
-[]
+[
+  {
+    "id": "C1",
+    "opening_id": "OP1",
+    "name": "Rohan Verma",
+    "file": "01_rohan_verma.txt",
+    "stage": "Applied"
+  },
+  {
+    "id": "C2",
+    "opening_id": "OP1",
+    "name": "Meera Joshi",
+    "file": "02_meera_joshi.txt",
+    "stage": "Applied"
+  },
+  {
+    "id": "C3",
+    "opening_id": "OP1",
+    "name": "Sameer Khan",
+    "file": "03_sameer_khan.txt",
+    "stage": "Applied"
+  },
+  {
+    "id": "C4",
+    "opening_id": "OP1",
+    "name": "Isha Gupta",
+    "file": "04_isha_gupta.txt",
+    "stage": "Applied"
+  },
+  {
+    "id": "C5",
+    "opening_id": "OP1",
+    "name": "Deepak Shah",
+    "file": "05_deepak_shah.txt",
+    "stage": "Applied"
+  }
+]

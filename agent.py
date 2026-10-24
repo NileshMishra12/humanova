@@ -96,6 +96,13 @@ def _load_funcs():
 
 
 FUNCS = _load_funcs()
+try:  # screening learns from recruiter decisions once learning.py is there
+    import learning
+    if "screen_candidates" in FUNCS:
+        FUNCS["screen_candidates"] = learning.screen_with_learning
+except Exception as e:
+    learning = None
+    IMPORT_ERRORS["learning"] = f"{type(e).__name__}: {e}"
 TOOLS = [d for d in _DEFS if d["name"] in FUNCS]
 
 
@@ -106,7 +113,7 @@ _EMPLOYEE = {"list_employees", "get_employee", "who_is_on_leave", "get_attendanc
              "team_overview", "summarise_employee", "hr_reminders",
              "performance_trend", "team_performance", "project_status", "appraisal_evidence",
              "request_appraisal_approval", "appraisal_report", "team_report",
-             "appraisal_cycle_status", "calibration", "increment_recommendations"}
+             "appraisal_cycle_status", "calibration", "increment_recommendations", "graph_search"}
 _HIRING_READ = {"list_openings", "screen_candidates", "get_candidate"}
 _HIRING_ALL = _HIRING_READ | {"request_stage_change", "draft_email", "interview_questions"}
 
@@ -128,7 +135,7 @@ ROLES = {r["label"]: r for r in (
     _manager("Vikram Rao", "Mobile"),
     _role("Recruiter - Talent Team", None,
           "You are talking to the Talent Team recruiter. You handle hiring only and have no access to employee data.",
-          _HIRING_ALL),
+          _HIRING_ALL | {"graph_search"}),
     _role("HR Admin", None,
           "You are talking to an HR Admin. You can see every team and use every tool.",
           _EMPLOYEE | _HIRING_ALL | {"people_report"}),
@@ -212,6 +219,8 @@ def system_prompt(role):
     def week(start):
         return f"{start.isoformat()} to {(start + timedelta(days=4)).isoformat()}"
 
+    notes = learning.corrections() if learning else []
+    corrections = ("\n\nCorrections from users (follow them):\n" + "\n".join(f"- {n}" for n in notes)) if notes else ""
     return f"""You are HumaNova, the company's HR agent.
 Today is {today.strftime('%A')} {today.isoformat()}.
 This week (Mon-Fri): {week(monday)}. Next week (Mon-Fri): {week(monday + timedelta(days=7))}.
@@ -225,7 +234,7 @@ Rules:
 - Increments are a % from the policy and HR approves them. Never give salary amounts.
 - Work metrics come from Nexus. Report them as they are; don't re-judge them.
 - If a request is outside your role's access, say so briefly.
-- Answer in short bullets with the numbers."""
+- Answer in short bullets with the numbers.{corrections}"""
 
 
 # ---- running the agent ----
@@ -492,6 +501,29 @@ def _trend_lines(res):
             f"- Tasks per day worked, by week: {tasks}", f"- On-time %, by week: {on_time}"]
 
 
+def _graph_lines(res):
+    if res.get("kind") == "skill":
+        lines = [f"- Skill: **{res.get('skill')}**"]
+        sections = [("employees", "Employees who know it", lambda x: x["name"]),
+                    ("candidates", "Candidates with it", lambda x: x["name"]),
+                    ("openings", "Openings", lambda x: f"{x['opening']} ({x['relation']})"),
+                    ("decisions", "Recruiter decisions citing it", lambda x: x["detail"]),
+                    ("projects", "Projects", lambda x: f"{x['project']}: {', '.join(x['people_who_know_it'])}")]
+        for key, label, fmt in sections:
+            items = res.get(key, [])
+            lines.append(f"- **{label}** ({len(items)})" + (":" if items else ""))
+            lines += [f"  - {fmt(i)}" for i in items[:SHOW]]
+            if len(items) > SHOW:
+                lines.append(f"  - …and {len(items) - SHOW} more")
+        return lines
+    lines = []
+    for m in res.get("matches", []):
+        lines.append(f"- **{m['label']}** ({m['type']}): {m['detail']}")
+        lines += [f"  - {c['relation']} {'→' if c['direction'] == 'out' else '←'} {c['label']} ({c['type']})"
+                  for c in m["connections"][:SHOW]]
+    return lines or _bullets(res)
+
+
 def _report_lines(res):
     return [res["report"]] if "report" in res else _bullets(res)
 
@@ -592,6 +624,22 @@ def _find_row(res, emp):
 
 # -- routes --
 
+def _interviewer(run, screen):
+    """Skill to find an interviewer for, with its graph result: a required skill that many candidates are
+    missing and that someone here knows (so it names an actual interviewer)."""
+    missing = Counter(s for c in screen.get("ranked", []) for s in c.get("missing") or [])
+    fallback = None
+    for skill, _ in missing.most_common(6):
+        found = run("graph_search", term=skill)
+        if found is None or "error" in found or not found.get("employees"):
+            continue
+        if any(o.get("relation") == "requires" and o.get("opening") == screen.get("opening")
+               for o in found.get("openings", [])):
+            return skill, found
+        fallback = fallback or (skill, found)
+    return fallback or ("RxJS", run("graph_search", term="RxJS"))
+
+
 def _plan(q, run, team):
     today = date.fromisoformat(config.TODAY)
     monday = today - timedelta(days=today.weekday()) + timedelta(days=7)
@@ -599,16 +647,13 @@ def _plan(q, run, team):
     leave = run("who_is_on_leave", start=start, end=end, **team)
     flags = run("get_attention_flags", **team)
     screen = run("screen_candidates", opening_id=_opening_id(q))
-    # the interviewer to look for is the scarcest skill: the one most candidates are missing
-    missing = Counter(s for c in (screen or {}).get("ranked", []) for s in c.get("missing") or [])
-    skill = missing.most_common(1)[0][0] if missing else "RxJS"
-    graph = run("graph_search", term=skill)
+    skill, graph = _interviewer(run, screen or {})
 
     parts = [
         _section(f"Who is out next week ({start} to {end})", leave, _leave_lines),
         _section("Check-ins to book", flags, _checkin_lines),
         _section("Interviews to schedule", screen, _interview_lines),
-        _section(f"Suggested interviewer (who knows {skill})", graph),
+        _section(f"Suggested interviewer (who knows {skill})", graph, _graph_lines),
     ]
     results = [leave, flags, screen, graph]
     parts = [p for p, r in zip(parts, results) if p and not (r or {}).get("denied")]
@@ -707,7 +752,7 @@ def _answer(question, role, trace):
         return _show("Team performance", run("team_performance", **team))
     if _has(q, "who knows", "who can interview", "expert"):
         skill = _skill_in(question)
-        return _show(f"Who knows {skill}", run("graph_search", term=skill))
+        return _show(f"Who knows {skill}", run("graph_search", term=skill), _graph_lines)
     if _has(q, "leave") and _has(q, "who"):
         start, end, label = _leave_range(q)
         return _show(f"Who is on leave {label} ({start} to {end})",

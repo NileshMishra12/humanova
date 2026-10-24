@@ -42,6 +42,12 @@ def write_json(name, data):
     _path(name).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def read_bytes(*parts):
+    """A file under the data folder (e.g. a resume), or None if it isn't there."""
+    path = config.DATA_DIR.joinpath(*parts)
+    return path.read_bytes() if path.is_file() else None
+
+
 def data_stamp(skip=()):
     """Changes whenever a data file changes (used to cache slow results). skip lists file names to ignore."""
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -114,5 +120,49 @@ def decide_approval(approval_id, approve, by, reason=""):
         write_json("appraisals.json", records)
 
     write_json("approvals.json", approvals)
+
+    if approval["kind"] == "candidate_stage":  # a human decision on a candidate: HumaNova learns from it
+        stage = approval["change"]["stage"]
+        advance = approve != (stage == "Rejected")  # approving a move forward, or refusing a rejection
+        candidate = next((c for c in read_json("candidates.json") if c["id"] == approval["target_id"]), None)
+        if candidate:
+            record_decision(candidate["id"], candidate["opening_id"], "advanced" if advance else "rejected",
+                            reason, by, source="approval")
+
     audit(by, "decide_approval", {"id": approval_id, "approve": approve}, approval["status"])
     return approval
+
+
+# ---- recruiter decisions and chat feedback (what HumaNova learns from) ----
+
+def record_decision(candidate_id, opening_id, decision, reason, by, source="manual"):
+    """decision is 'advanced' or 'rejected'."""
+    if decision not in ("advanced", "rejected"):
+        raise ValueError("decision must be 'advanced' or 'rejected'")
+    decisions = read_json("decisions.json")
+    record = {"id": f"D{len(decisions) + 1}", "time": _now(), "candidate_id": candidate_id,
+              "opening_id": opening_id, "decision": decision, "reason": reason or "", "by": by, "source": source}
+    decisions.append(record)
+    write_json("decisions.json", decisions)
+    audit(by, "record_decision", {"candidate_id": candidate_id, "decision": decision}, "ok")
+    return record
+
+
+def list_decisions(opening_id=None):
+    return [d for d in read_json("decisions.json") if opening_id is None or d["opening_id"] == opening_id]
+
+
+def add_feedback(question, answer, rating, comment, by):
+    """rating is 'up' or 'down'."""
+    if rating not in ("up", "down"):
+        raise ValueError("rating must be 'up' or 'down'")
+    feedback = read_json("feedback.json")
+    record = {"id": f"F{len(feedback) + 1}", "time": _now(), "question": question, "answer": answer,
+              "rating": rating, "comment": comment or "", "by": by}
+    feedback.append(record)
+    write_json("feedback.json", feedback)
+    return record
+
+
+def list_feedback(rating=None):
+    return [f for f in read_json("feedback.json") if rating is None or f["rating"] == rating]

@@ -42,6 +42,13 @@ def write_json(name, data):
     _path(name).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def data_stamp(skip=()):
+    """Changes whenever a data file changes (used to cache slow results). skip lists file names to ignore."""
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return tuple(sorted((p.name, p.stat().st_mtime_ns) for p in config.DATA_DIR.iterdir()
+                        if p.is_file() and p.name not in skip))
+
+
 def _now():
     return datetime.now().isoformat(timespec="seconds")
 

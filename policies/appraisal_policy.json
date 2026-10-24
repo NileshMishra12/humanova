@@ -1,0 +1,59 @@
+{
+  "name": "DUMMY appraisal & increment policy (demo only - replace with the company policy)",
+  "rubric_weights": {
+    "delivery": 30,
+    "on_time": 20,
+    "quality": 20,
+    "goals": 15,
+    "review": 10,
+    "attendance": 5
+  },
+  "trend_adjustment_points": 5,
+  "productivity_target_tasks_per_day": {
+    "default": 1.6,
+    "manager": 0.5
+  },
+  "rubric_rules": {
+    "reopen_rate_cap": 0.3,
+    "overdue_goal_penalty": 5,
+    "no_data_credit": 0.5,
+    "attendance_tiers": [
+      {"min_pct": 95, "credit": 1.0},
+      {"min_pct": 85, "credit": 0.6},
+      {"min_pct": 0, "credit": 0.2}
+    ],
+    "trend": {
+      "window_weeks": 4,
+      "productivity_change_pct": 15,
+      "on_time_change_points": 8
+    }
+  },
+  "bands": [
+    {"name": "Exceeds expectations", "min_score": 80, "increment_min_pct": 10, "increment_max_pct": 12},
+    {"name": "Meets expectations", "min_score": 65, "increment_min_pct": 6, "increment_max_pct": 8},
+    {"name": "Partly meets expectations", "min_score": 50, "increment_min_pct": 2, "increment_max_pct": 4},
+    {"name": "Below expectations", "min_score": 0, "increment_min_pct": 0, "increment_max_pct": 0,
+     "action": "Performance improvement plan review"}
+  ],
+  "eligibility": {
+    "min_service_months": 12,
+    "exclude_probation": true,
+    "probation_months": 6
+  },
+  "calibration": {
+    "rating_bands": {
+      "Exceeds expectations": [4, 5],
+      "Meets expectations": [3, 3],
+      "Partly meets expectations": [2, 2],
+      "Below expectations": [1, 1]
+    }
+  },
+  "increment_budget_pct": 8,
+  "top_band_max_share": 0.4,
+  "notes": [
+    "This is a dummy policy for the demo. HR replaces this file with the real one; no code changes needed.",
+    "Work numbers (tasks, on-time delivery, reopened bugs) come from Nexus. HumaNova reads them and does not re-measure them.",
+    "Tasks per day only counts days actually worked, so leave never counts against anyone.",
+    "Increments are percentages only. HumaNova holds no salary data, and HR approves every increment."
+  ]
+}

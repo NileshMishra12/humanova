@@ -25,6 +25,7 @@ def _tool(name, description, props=None, required=()):
 
 
 _TEAM = {"team": {"type": "string", "description": "Team name, e.g. Web or Mobile. Omit for all teams."}}
+_TEAM_CYCLE = {**_TEAM, "cycle": {"type": "string", "description": "Appraisal cycle, e.g. 2026-H2 (default)."}}
 _PERSON = {"name_or_id": {"type": "string", "description": "Employee name or id."}}
 _CANDIDATE = {"candidate_id": {"type": "string", "description": "Candidate id."}}
 _STAGES = ["Applied", "Shortlisted", "Interview", "Offer", "Hired", "Rejected"]
@@ -63,11 +64,13 @@ _DEFS = [
           {**_PERSON, "cycle": {"type": "string", "description": "Appraisal cycle, e.g. 2026-H2."},
            "requested_by": {"type": "string", "description": "Name of the person asking (the user)."}},
           ["name_or_id", "cycle", "requested_by"]),
-    _tool("team_report", "Written report on a team for a manager.", _TEAM),
-    _tool("appraisal_cycle_status", "Progress of the appraisal cycle: who is done, pending or overdue.", _TEAM),
-    _tool("calibration", "Compare ratings across teams to spot unfair spreads. HR only.", _TEAM),
-    _tool("increment_recommendations", "Increment % per person from the policy. Percentages only, never salary amounts; HR approves them.", _TEAM),
-    _tool("people_report", "Company-wide people report for HR.", _TEAM),
+    _tool("appraisal_report", "Downloadable markdown report of one person's appraisal evidence pack.",
+          {**_PERSON, "cycle": {"type": "string", "description": "Appraisal cycle, e.g. 2026-H2."}}, ["name_or_id"]),
+    _tool("team_report", "Downloadable markdown work report on a team for a manager.", _TEAM),
+    _tool("appraisal_cycle_status", "Progress of the appraisal cycle per person (Not started, Waiting for HR, Approved, Rejected) with completion %. Use for 'how is the cycle going' questions.", _TEAM_CYCLE),
+    _tool("calibration", "Fairness check: band distribution, people whose evidence band doesn't match their last rating, and distribution skew. Use for calibration, fairness or bias questions.", _TEAM_CYCLE),
+    _tool("increment_recommendations", "Ranked increment % per person from the policy, fitted to the budget, with top performers and who is not eligible. Percentages only, never salary amounts; HR approves them. Use for increment, best performer or ranking questions.", _TEAM_CYCLE),
+    _tool("people_report", "Full HR markdown report: cycle, increments, band distribution, calibration, reminders and flags. Use when HR asks for the people or HR report.", _TEAM_CYCLE),
     _tool("graph_search", "Search the knowledge graph of people, skills, projects and teams.",
           {"term": {"type": "string", "description": "A skill, person, team, project or opening to look up."}}, ["term"]),
 ]
@@ -100,7 +103,10 @@ TOOLS = [d for d in _DEFS if d["name"] in FUNCS]
 
 # Later prompts add their tools to these sets as they register them.
 _EMPLOYEE = {"list_employees", "get_employee", "who_is_on_leave", "get_attendance", "get_attention_flags",
-             "team_overview", "summarise_employee", "hr_reminders"}
+             "team_overview", "summarise_employee", "hr_reminders",
+             "performance_trend", "team_performance", "project_status", "appraisal_evidence",
+             "request_appraisal_approval", "appraisal_report", "team_report",
+             "appraisal_cycle_status", "calibration", "increment_recommendations"}
 _HIRING_READ = {"list_openings", "screen_candidates", "get_candidate"}
 _HIRING_ALL = _HIRING_READ | {"request_stage_change", "draft_email", "interview_questions"}
 
@@ -125,7 +131,7 @@ ROLES = {r["label"]: r for r in (
           _HIRING_ALL),
     _role("HR Admin", None,
           "You are talking to an HR Admin. You can see every team and use every tool.",
-          _EMPLOYEE | _HIRING_ALL),
+          _EMPLOYEE | _HIRING_ALL | {"people_report"}),
 )}
 
 
@@ -143,8 +149,11 @@ def can_decide(role, kind):
 # ---- scope enforcement (in code, not just the prompt) ----
 
 # Later prompts append their tools to these tuples.
-TEAM_TOOLS = ("list_employees", "who_is_on_leave", "get_attention_flags", "team_overview", "hr_reminders")
-PERSON_TOOLS = ("get_employee", "get_attendance", "summarise_employee")
+TEAM_TOOLS = ("list_employees", "who_is_on_leave", "get_attention_flags", "team_overview", "hr_reminders",
+              "team_performance", "project_status", "team_report",
+              "appraisal_cycle_status", "calibration", "increment_recommendations", "people_report")
+PERSON_TOOLS = ("get_employee", "get_attendance", "summarise_employee", "performance_trend",
+                "appraisal_evidence", "request_appraisal_approval", "appraisal_report")
 
 
 def _scope(name, args, role):
@@ -172,6 +181,11 @@ def _out_of_scope(name, args, role):
         return {"error": f"{emp['name']} is not in your team ({role['team']}). "
                          f"You can only access {role['team']} team members."}
     return None
+
+
+def use_tool(role, name, **args):
+    """Run a tool for a role from the UI: permission, team scope and audit, same as the agent."""
+    return _run(name, args, role, []) or {"error": f"{name} isn't available yet."}
 
 
 def call_tool(name, args, user):
@@ -420,6 +434,68 @@ def _questions_lines(res):
     return [f"{i}. {q}" for i, q in enumerate(res.get("questions", []), 1)]
 
 
+def _evidence_lines(res):
+    rng = res.get("increment_range", {})
+    lines = [f"- **{res.get('band')}**, score **{res.get('score')}/100** · increment range "
+             f"{rng.get('min_pct')}-{rng.get('max_pct')}% · trend {res.get('trend')}"]
+    if res.get("action"):
+        lines.append(f"- Action: {res['action']}")
+    lines.append("- Breakdown: " + ", ".join(f"{k.replace('_', ' ')} {v}/{res['max_points'][k]}"
+                                             for k, v in res.get("breakdown", {}).items()))
+    lines += ["", "**Evidence**"] + [f"- [{e['source']}] {e['fact']}" for e in res.get("evidence", [])]
+    return lines + ["", str(res.get("narrative", "")), "", f"_{res.get('increment_note')}_"]
+
+
+def _increment_lines(res):
+    scaled = f" · scaled to fit (before {res.get('average_before')}%)" if res.get("scaled") else " · within budget"
+    lines = [f"- Average **{res.get('average_after')}%** against a budget of {res.get('budget_pct')}%{scaled}"]
+    top = res.get("top3", [])
+    if top:
+        lines.append("- Top performers: " + "; ".join(
+            f"{t['name']} (score {t['score']}, {t['recommended_pct']}%)" for t in top))
+    rows = [r for r in res.get("rows", []) if r.get("eligible")]
+    lines += _list(rows, lambda r: f"#{r['rank']} {r['name']}: score {r['score']}, {r['band']}, "
+                                   f"range {r['range_min_pct']}-{r['range_max_pct']}% → **{r['recommended_pct']}%**")
+    out = res.get("not_eligible", [])
+    if out:
+        lines.append(f"- **{len(out)}** not eligible:")
+        lines += [f"  - {o['name']}: {o['reason']}" for o in out[:SHOW]]
+    return lines + ["- Percentages only; HR approves every increment."]
+
+
+def _calibration_lines(res):
+    dist = ", ".join(f"{d['band']} {d['count']} ({d['share_pct']}%)" for d in res.get("distribution", []))
+    lines = [f"- Band distribution: {dist}"]
+    checks = res.get("checks", [])
+    lines.append(f"- **{len(checks)}** calibration check(s)" + (":" if checks else "."))
+    lines += [f"  - {c.get('employee') or 'Distribution'} [{c['rule']}]: {c['detail']}" for c in checks[:SHOW]]
+    if len(checks) > SHOW:
+        lines.append(f"  - …and {len(checks) - SHOW} more")
+    teams = ", ".join(f"{t['team']} {t['average_score']}" for t in res.get("team_averages", []))
+    return lines + ([f"- Average score by team: {teams}"] if teams else [])
+
+
+def _cycle_lines(res):
+    lines = [f"- Cycle {res.get('cycle')}: **{res.get('completion_pct')}%** decided · approved "
+             f"{res.get('approved')} · rejected {res.get('rejected')} · waiting for HR {res.get('waiting')} "
+             f"· not started {res.get('not_started')}"]
+    rows = sorted(res.get("rows", []), key=lambda r: (r["status"] == "Not started", r["status"]))
+    return lines + _list(rows, lambda r: f"{r['name']}: {r['status']} ({r['band']}, score {r['score']}, "
+                                         f"last rating {r.get('last_rating') or '-'}, trend {r.get('trend')})")
+
+
+def _trend_lines(res):
+    rows = res.get("weeks", [])
+    tasks = ", ".join("-" if r.get("tasks_per_day") is None else str(r["tasks_per_day"]) for r in rows)
+    on_time = ", ".join("-" if r.get("on_time_pct") is None else f"{r['on_time_pct']:.0f}" for r in rows)
+    return [f"- **{res.get('trend')}**: {res.get('summary')}",
+            f"- Tasks per day worked, by week: {tasks}", f"- On-time %, by week: {on_time}"]
+
+
+def _report_lines(res):
+    return [res["report"]] if "report" in res else _bullets(res)
+
+
 def _stage_lines(res):
     return [f"- {res.get('summary')}",
             f"- Approval **{res.get('approval_id')}** is {res.get('status')}: a person decides in the Approvals tab."]
@@ -590,18 +666,18 @@ def _answer(question, role, trace):
     if _has(q, "plan") and _has(q, "monday", "week", "day"):
         return _plan(q, run, team)
     if _has(q, "calibrat", "fair", "bias"):
-        return _show("Calibration check", run("calibration", **team))
+        return _show("Calibration check", run("calibration", **team), _calibration_lines)
     if _has(q, "reminder", "probation", "wellbeing", "due"):
         return _show("HR reminders", run("hr_reminders", **team), _reminder_lines)
     if _has(q, "cycle", "appraisal status", "completion"):
-        return _show("Appraisal cycle status", run("appraisal_cycle_status", **team))
+        return _show("Appraisal cycle status", run("appraisal_cycle_status", **team), _cycle_lines)
     if _has(q, "people report", "hr report"):
-        return _show("People report", run("people_report", **team))
+        return _show("People report", run("people_report", **team), _report_lines)
     if _has(q, "report"):
-        return _show("Team report", run("team_report", **team))
+        return _show("Team report", run("team_report", **team), _report_lines)
     if _has(q, "increment", "best perform", "top perform", "ranking") and not people:
-        return _show("Increment recommendations", run("increment_recommendations", **team))
-    if people and _has(q, "appraisal", "evidence", "increment"):
+        return _show("Increment recommendations", run("increment_recommendations", **team), _increment_lines)
+    if people and (_has(q, "appraisal", "evidence", "increment", "approval") or (_has(q, "send") and _has(q, "hr"))):
         if len(people) > 1:
             return _which(people)
         emp = people[0]
@@ -612,7 +688,7 @@ def _answer(question, role, trace):
                              cycle=m.group(0).upper() if m else "2026-H2", requested_by=role["label"]),
                          lambda r: _bullets(r) + ["- Waiting in Approvals: HR decides."])
         evidence = run("appraisal_evidence", name_or_id=emp["id"])
-        text = _show(f"Appraisal evidence: {emp['name']}", evidence)
+        text = _show(f"Appraisal evidence: {emp['name']}", evidence, _evidence_lines)
         if evidence and "error" not in evidence:
             # company-wide, so the budget scaling matches the HR tab
             inc = run("increment_recommendations")
@@ -627,7 +703,7 @@ def _answer(question, role, trace):
             return _which(people)
         if people:
             return _show(f"Performance trend: {people[0]['name']}",
-                         run("performance_trend", name_or_id=people[0]["id"]))
+                         run("performance_trend", name_or_id=people[0]["id"]), _trend_lines)
         return _show("Team performance", run("team_performance", **team))
     if _has(q, "who knows", "who can interview", "expert"):
         skill = _skill_in(question)
